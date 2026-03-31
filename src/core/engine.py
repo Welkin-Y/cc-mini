@@ -1,10 +1,13 @@
 from __future__ import annotations
 import time
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 import anthropic
 from .config import DEFAULT_MODEL, default_max_tokens_for_model, resolve_model
 from .tools.base import Tool, ToolResult
 from .permissions import PermissionChecker
+
+if TYPE_CHECKING:
+    from .session import SessionStore
 
 _MAX_RETRIES = 3
 _RETRY_BACKOFF = (1, 3, 10)
@@ -20,7 +23,8 @@ class Engine:
                  model: str = DEFAULT_MODEL,
                  max_tokens: int | None = None,
                  api_key: str | None = None,
-                 base_url: str | None = None):
+                 base_url: str | None = None,
+                 session_store: SessionStore | None = None):
         self._model = resolve_model(model)
         self._max_tokens = max_tokens or default_max_tokens_for_model(self._model)
         self._client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
@@ -30,6 +34,29 @@ class Engine:
         self._messages: list[dict] = []
         self._aborted = False
         self._active_stream = None  # reference to current HTTP stream
+        self._session_store = session_store
+
+    # -- message accessors (for compact / resume / commands) ----------------
+
+    def get_messages(self) -> list[dict]:
+        return list(self._messages)
+
+    def set_messages(self, messages: list[dict]) -> None:
+        self._messages = messages
+
+    def get_system_prompt(self) -> str:
+        return self._system_prompt
+
+    def set_session_store(self, store: SessionStore | None) -> None:
+        self._session_store = store
+
+    def _persist(self, message: dict) -> None:
+        """Append message to session store if available."""
+        if self._session_store is not None:
+            try:
+                self._session_store.append_message(message)
+            except Exception:
+                pass  # don't break the conversation on I/O errors
 
     def abort(self):
         """Abort the current turn immediately.
@@ -83,6 +110,7 @@ class Engine:
         """
         self._aborted = False
         self._messages.append({"role": "user", "content": user_input})
+        self._persist(self._messages[-1])
 
         try:
             while True:
@@ -153,6 +181,7 @@ class Engine:
                     return
 
                 self._messages.append({"role": "assistant", "content": final.content})
+                self._persist(self._messages[-1])
 
                 if not tool_uses:
                     break
@@ -172,6 +201,7 @@ class Engine:
                     })
 
                 self._messages.append({"role": "user", "content": tool_results})
+                self._persist(self._messages[-1])
         except AbortedError:
             self.cancel_turn()
             raise

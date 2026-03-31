@@ -20,6 +20,9 @@ from rich.text import Text
 from .config import load_app_config
 from .context import build_system_prompt
 from .engine import AbortedError, Engine
+from .session import SessionStore
+from .compact import CompactService, estimate_tokens, should_compact
+from .commands import parse_command, handle_command, CommandContext
 from ._keylistener import EscListener
 from .permissions import PermissionChecker
 from .tools.bash import BashTool
@@ -213,6 +216,8 @@ def main() -> None:
     parser.add_argument("--model", help="Model name, e.g. claude-sonnet-4")
     parser.add_argument("--max-tokens", type=int,
                         help="Maximum output tokens for each model response")
+    parser.add_argument("--resume", metavar="SESSION",
+                        help="Resume a previous session (id or index)")
     args = parser.parse_args()
 
     try:
@@ -223,6 +228,14 @@ def main() -> None:
     tools = [FileReadTool(), GlobTool(), GrepTool(), FileEditTool(), FileWriteTool(), BashTool()]
     system_prompt = build_system_prompt()
     permissions = PermissionChecker(auto_approve=args.auto_approve)
+
+    cwd = str(Path.cwd())
+
+    # Session & compact services
+    session_store: SessionStore | None = None
+    if not args.print:
+        session_store = SessionStore(cwd=cwd, model=app_config.model)
+
     engine = Engine(
         tools=tools,
         system_prompt=system_prompt,
@@ -231,7 +244,35 @@ def main() -> None:
         base_url=app_config.base_url,
         model=app_config.model,
         max_tokens=app_config.max_tokens,
+        session_store=session_store,
     )
+    compact_service = CompactService(client=engine._client, model=app_config.model)
+
+    # Handle --resume
+    if args.resume and session_store is not None:
+        sessions = SessionStore.list_sessions(cwd)
+        target = None
+        try:
+            idx = int(args.resume) - 1
+            if 0 <= idx < len(sessions):
+                target = sessions[idx]
+        except ValueError:
+            needle = args.resume.lower()
+            for m in sessions:
+                if m.session_id.lower().startswith(needle):
+                    target = m
+                    break
+        if target:
+            msgs = SessionStore.load_messages(target.session_id, cwd)
+            if msgs:
+                engine.set_messages(msgs)
+                session_store = SessionStore(cwd=cwd, model=app_config.model,
+                                            session_id=target.session_id)
+                engine.set_session_store(session_store)
+                console.print(f"[green]✓[/green] Resumed: {target.title[:50]}  "
+                              f"({len(msgs)} messages)")
+        else:
+            console.print(f"[red]Session not found: {args.resume}[/red]")
 
     # Non-interactive / piped
     if args.print or args.prompt:
@@ -241,10 +282,11 @@ def main() -> None:
 
     # Interactive REPL
     config_note = f"[dim]{app_config.model} · max_tokens={app_config.max_tokens}[/dim]"
+    session_note = f"[dim]session {session_store.session_id[:8]}[/dim]" if session_store else ""
     console.print("[bold cyan]Mini Claude Code[/bold cyan]  "
-                  f"{config_note}  "
+                  f"{config_note}  {session_note}  "
                   "[dim]Esc or Ctrl+C to cancel, Ctrl+C twice to exit[/dim]")
-    console.print('[dim]Enter to send, Alt+Enter for newline[/dim]\n')
+    console.print('[dim]Enter to send, Alt+Enter for newline, /help for commands[/dim]\n')
 
     kb = KeyBindings()
 
@@ -283,6 +325,38 @@ def main() -> None:
         if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
             console.print("[dim]Goodbye.[/dim]")
             break
+
+        # Slash commands
+        cmd = parse_command(user_input)
+        if cmd is not None:
+            cmd_name, cmd_args = cmd
+            # /exit and /quit already handled above
+            if cmd_name in ("exit", "quit"):
+                console.print("[dim]Goodbye.[/dim]")
+                break
+            cmd_ctx = CommandContext(
+                engine=engine,
+                session_store=session_store,
+                compact_service=compact_service,
+                console=console,
+                app_config=app_config,
+                new_session_store=lambda: SessionStore(cwd=cwd, model=app_config.model),
+            )
+            handle_command(cmd_name, cmd_args, cmd_ctx)
+            # Commands may swap the session store (e.g. /resume, /clear)
+            session_store = cmd_ctx.session_store
+            continue
+
+        # Auto-compact when approaching token limits
+        if should_compact(engine.get_messages()):
+            console.print("[dim]Auto-compacting conversation…[/dim]")
+            try:
+                new_msgs, _ = compact_service.compact(
+                    engine.get_messages(), engine.get_system_prompt())
+                engine.set_messages(new_msgs)
+                console.print(f"[dim]Context compressed to {estimate_tokens(new_msgs):,} tokens.[/dim]")
+            except Exception as e:
+                console.print(f"[dim red]Auto-compact failed: {e}[/dim red]")
 
         run_query(engine, _parse_input(user_input), print_mode=False, permissions=permissions)
 
