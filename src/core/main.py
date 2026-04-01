@@ -791,7 +791,8 @@ def _handle_sandbox_command(
     if subcmd == "status" or subcmd == "":
         _show_sandbox_status(mgr, con)
     elif subcmd == "exclude" and len(parts) > 2:
-        msg = mgr.add_excluded_command(parts[2])
+        pattern = parts[2].strip("\"'")
+        msg = mgr.add_excluded_command(pattern)
         mgr.save()
         con.print(f"[green]{msg}[/green]")
     elif subcmd == "mode" and len(parts) > 2:

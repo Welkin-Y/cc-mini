@@ -89,22 +89,22 @@ def save_sandbox_config(config: SandboxConfig, path: Path) -> None:
     """Save sandbox config to TOML [sandbox] section.
 
     Corresponds to setSandboxSettings (sandbox-adapter.ts:669-691).
-    Only updates [sandbox], preserves other content.
+    Only updates [sandbox], preserves other content via line-level surgery.
     """
-    existing: dict[str, Any] = {}
+    sandbox_dict = _config_to_dict(config)
+    sandbox_lines = _render_sandbox_section(sandbox_dict)
+
     if path.exists():
         try:
-            with path.open("rb") as fh:
-                existing = tomllib.load(fh)
-        except (tomllib.TOMLDecodeError, OSError):
-            pass
+            original = path.read_text(encoding="utf-8")
+        except OSError:
+            original = ""
+    else:
+        original = ""
 
-    sandbox_dict = _config_to_dict(config)
-    existing["sandbox"] = sandbox_dict
-
+    new_content = _replace_sandbox_section(original, sandbox_lines)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        _write_toml(existing, fh)
+    path.write_text(new_content, encoding="utf-8")
 
 
 def _dict_to_config(d: dict[str, Any]) -> SandboxConfig:
@@ -143,6 +143,69 @@ def _config_to_dict(config: SandboxConfig) -> dict[str, Any]:
     }
 
 
+import re
+
+
+def _render_sandbox_section(sandbox_dict: dict[str, Any]) -> str:
+    """Render [sandbox] and [sandbox.filesystem] as TOML text."""
+    lines: list[str] = ["[sandbox]"]
+    for key, val in sandbox_dict.items():
+        if isinstance(val, dict):
+            continue
+        lines.append(_format_kv(key, val))
+    fs = sandbox_dict.get("filesystem")
+    if isinstance(fs, dict):
+        lines.append("")
+        lines.append("[sandbox.filesystem]")
+        for key, val in fs.items():
+            lines.append(_format_kv(key, val))
+    return "\n".join(lines) + "\n"
+
+
+def _replace_sandbox_section(original: str, new_section: str) -> str:
+    """Replace or append [sandbox] block in TOML text, preserving everything else.
+
+    Uses line-based parsing: removes all lines belonging to [sandbox] or
+    [sandbox.*] sections, then inserts new_section in their place.
+    """
+    if not original.strip():
+        return new_section
+
+    _HEADER_RE = re.compile(r"^\[(.+)\]\s*$")
+
+    lines = original.splitlines(keepends=True)
+    kept: list[str] = []
+    insert_pos: int | None = None
+    in_sandbox = False
+
+    for line in lines:
+        m = _HEADER_RE.match(line)
+        if m:
+            header_name = m.group(1).strip()
+            if header_name == "sandbox" or header_name.startswith("sandbox."):
+                in_sandbox = True
+                if insert_pos is None:
+                    insert_pos = len(kept)
+                continue
+            else:
+                in_sandbox = False
+
+        if in_sandbox:
+            continue
+
+        kept.append(line)
+
+    # Build result: kept lines before insert point + new section + kept lines after
+    if insert_pos is not None:
+        before = "".join(kept[:insert_pos]).rstrip("\n")
+        after = "".join(kept[insert_pos:]).lstrip("\n")
+        parts = [p for p in (before, new_section.strip(), after) if p]
+        return "\n\n".join(parts) + "\n"
+    else:
+        # No existing [sandbox] — append
+        return original.rstrip("\n") + "\n\n" + new_section
+
+
 def _write_toml(data: dict[str, Any], fh: Any) -> None:
     """Minimal TOML writer sufficient for our config structure.
 
@@ -177,6 +240,8 @@ def _format_kv(key: str, val: Any) -> str:
     if isinstance(val, bool):
         return f"{key} = {'true' if val else 'false'}"
     if isinstance(val, int):
+        return f"{key} = {val}"
+    if isinstance(val, float):
         return f"{key} = {val}"
     if isinstance(val, str):
         return f'{key} = "{val}"'
