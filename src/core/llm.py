@@ -193,13 +193,16 @@ class LLMClient:
         system: str | None,
         tools: list[dict[str, Any]] | None,
     ) -> LLMMessage:
-        response = self._client.messages.create(
+        kwargs: dict[str, Any] = dict(
             model=model,
             max_tokens=max_tokens,
-            system=system,
-            tools=tools or None,
             messages=messages,
         )
+        if system:
+            kwargs["system"] = system
+        if tools:
+            kwargs["tools"] = tools
+        response = self._client.messages.create(**kwargs)
         usage = _usage_from_anthropic(getattr(response, "usage", None))
         return LLMMessage(
             content=_normalize_anthropic_content(getattr(response, "content", [])),
