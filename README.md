@@ -1,24 +1,40 @@
 # cc-mini
 
-A lightweight Python implementation of [Claude Code](https://claude.ai/code) for the community — a terminal-based AI coding assistant that runs an agentic tool loop via the Anthropic API.
+A lightweight Python reimplementation of [Claude Code](https://claude.ai/code) — a terminal-based AI coding assistant powered by the Anthropic API. Runs an agentic tool loop, supports session persistence, and is built for extensibility.
+
+---
 
 ## Features
 
+### Advanced Features
 
-- **Interactive REPL** with command history
-- **Streaming responses** — text appears as it is generated
-- **Agentic tool loop** — multiple tool calls per turn
-- **6 built-in tools**: file read, file edit, file write, glob, grep, bash
-- **Permission system** — reads auto-approved, writes/bash ask for confirmation
-- **Conversation management** — session persistence, context compression, resume
-- **Skill system** — built-in and custom SKILL.md-based reusable prompts
-- **Sandbox** — run bash commands in a bubblewrap (bwrap) sandbox for filesystem and network isolation
+> **These features are fully implemented in the codebase but have not been formally released.**
+> They are functional and available to use, but may have rough edges or undocumented behaviors.
+
+| Feature | What it does |
+|---------|--------------|
+| [**Buddy**](#buddy--ai-companion) | Tamagotchi-style AI companion pet — watches your sessions, comments in a speech bubble, has persistent personality and stats |
+| [**KAIROS**](#kairos--memory-system) | Cross-session memory system — save notes, auto-consolidates logs into topic files over time |
+| [**Sandbox**](#sandbox) | Runs bash commands inside bubblewrap (bwrap) isolation — filesystem writes and network access restricted |
+| [**Skills**](#skills) | Reusable one-command workflows via `SKILL.md` files — built-in and custom, project or user scoped |
+
+### Basic Features
+
+- **Interactive REPL** — command history, keyboard shortcuts, streaming output as text is generated
+- **Agentic tool loop** — Claude autonomously calls multiple tools per turn until the task is complete
+- **6 built-in tools**: `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash`
+- **Permission system** — reads auto-approved; writes and bash commands ask for confirmation
+- **Conversation management** — session persistence, context compression, and resume support
+
+---
 
 ## Requirements
 
 - Python 3.10+ (3.11+ recommended)
 - [Anthropic API key](https://console.anthropic.com/)
-- Linux with [bubblewrap](https://github.com/containers/bubblewrap) (`apt install bubblewrap`) for sandbox support (optional)
+- Linux with [bubblewrap](https://github.com/containers/bubblewrap) (`apt install bubblewrap`) — only for sandbox support (optional)
+
+---
 
 ## Installation
 
@@ -28,7 +44,7 @@ A lightweight Python implementation of [Claude Code](https://claude.ai/code) for
 curl -fsSL https://raw.githubusercontent.com/e10nMa2k/cc-mini/main/install.sh | bash
 ```
 
-This clones the repo to `~/.cc-mini`, creates an isolated venv, and places a `cc-mini` launcher in `~/.local/bin`.  No `sudo` required.
+Clones the repo to `~/.cc-mini`, creates an isolated venv, and places a `cc-mini` launcher in `~/.local/bin`. No `sudo` required.
 
 **Options** (set as env vars before the command):
 
@@ -39,11 +55,12 @@ This clones the repo to `~/.cc-mini`, creates an isolated venv, and places a `cc
 | `CC_MINI_BRANCH` | `main` | Git branch to install |
 
 Example with custom dir:
+
 ```bash
 CC_MINI_INSTALL_DIR=~/tools/cc-mini curl -fsSL https://raw.githubusercontent.com/e10nMa2k/cc-mini/main/install.sh | bash
 ```
 
-To update to the latest version, just re-run the same command.
+To update, just re-run the same command.
 
 ### Manual install (from source)
 
@@ -52,6 +69,8 @@ git clone https://github.com/e10nMa2k/cc-mini.git
 cd cc-mini
 pip install -e ".[dev]"
 ```
+
+---
 
 ## Usage
 
@@ -122,7 +141,7 @@ Skip permission prompts for all tools (use with care):
 cc-mini --auto-approve
 ```
 
-### Configure API endpoint and model from CLI
+### Configure API endpoint and model
 
 ```bash
 cc-mini \
@@ -131,7 +150,7 @@ cc-mini \
   --model claude-sonnet-4
 ```
 
-`max_tokens` follows the selected model by default. Override when you need a tighter cap:
+`max_tokens` follows the selected model by default. Override when needed:
 
 ```bash
 cc-mini --model claude-3-5-haiku --max-tokens 2048
@@ -139,14 +158,12 @@ cc-mini --model claude-3-5-haiku --max-tokens 2048
 
 ### Configure with a TOML file
 
-Config files are loaded in this order:
+Config files are loaded in order (later overrides earlier):
 
 1. `~/.config/cc-mini/config.toml`
 2. `.cc-mini.toml` in the current working directory
 
-The project-local file overrides the home config. Point to a specific file with `--config`.
-
-Example:
+Point to a specific file with `--config`.
 
 ```toml
 [anthropic]
@@ -164,6 +181,8 @@ model = "claude-3-7-sonnet"
 max_tokens = 64000
 ```
 
+---
+
 ## Tools
 
 | Tool | Name | Permission |
@@ -177,7 +196,7 @@ max_tokens = 64000
 
 ### Permission prompt
 
-When the assistant wants to run a write or bash tool, you'll see:
+When the assistant wants to run a write or bash tool:
 
 ```
 Permission required: Bash
@@ -190,13 +209,15 @@ Permission required: Bash
 - `n` — deny
 - `a` — always allow this tool for the rest of the session
 
+---
+
 ## Conversation Management
 
-cc-mini automatically saves conversations and can compress long contexts to stay within token limits. Modelled after claude-code's session storage and compact system.
+cc-mini automatically saves conversations and can compress long contexts to stay within token limits.
 
 ### Session Persistence
 
-Every conversation is saved as a JSONL file under `~/.mini-claude/sessions/`. Messages are persisted incrementally — each message is appended as it happens, so nothing is lost even if the process crashes.
+Every conversation is saved as a JSONL file under `~/.mini-claude/sessions/`. Messages are appended incrementally — nothing is lost even if the process crashes.
 
 ```bash
 # Resume a previous session by index or ID
@@ -210,20 +231,20 @@ cc-mini --resume 1
 
 ### Context Compression
 
-When conversations grow long, the context window fills up. cc-mini can compress older messages into a structured summary, keeping recent messages intact.
+When conversations grow long, cc-mini can compress older messages into a structured summary while keeping recent messages intact.
 
 ```bash
-# Manual compact
 > /compact                          # Compress with default prompt
 > /compact focus on the auth work   # Compress with custom instructions
-
-# Auto-compact triggers automatically when token estimate exceeds 100k
 ```
 
+Auto-compact triggers when token estimate exceeds 100k.
+
 How it works:
-1. Messages are split into **history** (to summarize) and **recent** (to keep)
-2. History is sent to the API with a structured summary prompt (Primary Request, Key Technical Concepts, Files and Code, Current Work, etc.)
-3. The summary replaces the old messages; recent messages are preserved intact
+
+1. Messages split into **history** (summarized) and **recent** (kept as-is)
+2. History sent to API with a structured summary prompt (Primary Request, Key Concepts, Files, Current Work, etc.)
+3. Summary replaces old messages; recent messages preserved intact
 4. Tool-use / tool-result pairs are never split across the boundary
 
 ### Slash Commands
@@ -237,9 +258,13 @@ How it works:
 | `/clear` | Clear conversation, start a new session |
 | `/skills` | List all available skills |
 
+---
+
 ## Skills
 
-Skills are one-command workflows. Type `/name` and the AI runs a full sequence of steps for you — no need to explain what to do each time.
+> **Advanced feature** — fully implemented in the codebase, not formally released.
+
+Skills are one-command workflows. Type `/name` and the AI runs a full sequence of steps — no need to explain what to do each time.
 
 ### Built-in Skills
 
@@ -250,7 +275,7 @@ Skills are one-command workflows. Type `/name` and the AI runs a full sequence o
 | `/commit` | Runs `git add`, generates a clean commit message, and commits |
 | `/test` | Detects the project's test framework, runs it, and analyzes failures |
 
-All skills accept optional arguments passed as extra instructions to the AI:
+All skills accept optional arguments:
 
 ```
 /simplify focus on security
@@ -270,11 +295,10 @@ cc-mini
   ✓ done
 Created fib.py with recursive and iterative implementations...
 
-> /review                          ← one-command review
+> /review
 
 Running skill: /review…
-↳ Bash(git diff) …
-  ✓ done
+↳ Bash(git diff) …  ✓ done
 
 ## Code Review Report
 ### Warning
@@ -283,7 +307,7 @@ Running skill: /review…
 ### Suggestion
 - Consider adding @functools.lru_cache
 
-> /simplify                        ← one-command fix
+> /simplify
 
 Running skill: /simplify…
 ↳ Bash(git diff) …  ✓ done
@@ -291,14 +315,14 @@ Running skill: /simplify…
 ↳ Edit(fib.py) …    ✓ done
 Fixed: added negative check, type annotations, lru_cache...
 
-> /test                            ← one-command test
+> /test
 
 Running skill: /test…
 ↳ Bash(python -m pytest tests/ -v) …
   ✓ done
 All 3 tests passed ✓
 
-> /commit add fibonacci            ← one-command commit
+> /commit add fibonacci
 
 Running skill: /commit…
 ↳ Bash(git add fib.py && git commit -m "feat: add fibonacci") …
@@ -306,8 +330,6 @@ Running skill: /commit…
 ```
 
 ### Custom Skills
-
-You can create your own skills for project-specific workflows.
 
 **Step 1**: Create a directory under `.cc-mini/skills/`
 
@@ -356,24 +378,19 @@ Skills auto-complete when you type `/`. Use `/skills` to see everything availabl
 
 ### Where skills are discovered
 
-cc-mini looks for skills in these locations (in order):
-
 | Location | Scope |
 |----------|-------|
 | Built-in | 4 bundled skills, always available |
 | `~/.cc-mini/skills/` | Personal skills, available in all projects |
 | `<project>/.cc-mini/skills/` | Project skills, commit to git and share with your team |
 
-### Advanced: SKILL.md options
-
-The `---` block at the top of a SKILL.md (YAML frontmatter) supports these fields:
+### SKILL.md frontmatter options
 
 ```markdown
 ---
 name: deploy                    # Skill name (defaults to folder name)
 description: Deploy to staging  # Short description
-context: fork                   # fork = runs in isolation, won't affect
-                                #   your current conversation
+context: fork                   # fork = runs in isolation (won't affect current conversation)
                                 # inline = injected into conversation (default)
 allowed-tools: Bash, Read       # Restrict which tools the skill can use
 arguments: target               # Argument hint shown in /skills list
@@ -384,9 +401,13 @@ Use $ARGUMENTS for user-provided arguments.
 Use ${CLAUDE_SKILL_DIR} for the skill's directory path.
 ```
 
-## Buddy — AI Companion Pet
+---
 
-cc-mini includes **Buddy**, a Tamagotchi-style AI companion that lives in your terminal. Each user gets a unique pet determined by a seeded PRNG — same user always gets the same species, rarity, and stats.
+## Buddy — AI Companion
+
+> **Advanced feature** — fully implemented in the codebase, not formally released.
+
+cc-mini includes **Buddy**, a Tamagotchi-style AI companion that lives in your terminal. Each user gets a unique pet determined by a seeded PRNG — same username always produces the same species, rarity, and stats.
 
 ### Quick start
 
@@ -403,9 +424,9 @@ cc-mini includes **Buddy**, a Tamagotchi-style AI companion that lives in your t
 - **18 species**: duck, goose, blob, cat, dragon, octopus, owl, penguin, turtle, snail, ghost, axolotl, capybara, cactus, robot, rabbit, mushroom, chonk
 - **5 rarities**: Common (60%), Uncommon (25%), Rare (10%), Epic (4%), Legendary (1%) — plus 1% shiny chance
 - **5 stats** (0–100): Debugging, Patience, Chaos, Wisdom, Snark — these shape how your companion talks
-- **ASCII sprite** with idle animation (blinking, fidgeting) displayed in the terminal toolbar
+- **ASCII sprite** with idle animation (blinking, fidgeting) in the terminal toolbar
 - **Automatic reactions**: after each Claude response, your companion comments in a speech bubble
-- **Direct conversation**: address your companion by name and it replies directly (with conversation memory)
+- **Direct conversation**: address your companion by name and it replies (with conversation memory)
 
 ### Example
 
@@ -423,11 +444,15 @@ Found the issue — off-by-one error in the loop...
 
 The companion's personality is generated by Claude on first hatch and persists permanently. Stats influence behavior: high Snark = sarcastic, high Patience = supportive, high Chaos = unpredictable.
 
-## KAIROS
+---
 
-The assistant can remember information across sessions, and automatically consolidate memories over time.
+## KAIROS — Memory System
 
-**Slash commands:**
+> **Advanced feature** — fully implemented in the codebase, not formally released.
+
+The assistant can remember information across sessions and automatically consolidate memories over time.
+
+### Slash commands
 
 | Command | Description |
 |---------|-------------|
@@ -437,44 +462,46 @@ The assistant can remember information across sessions, and automatically consol
 
 **Auto-dream** runs automatically after a turn when ≥ 24 hours and ≥ 5 new sessions have passed since the last consolidation. Configurable via `--dream-interval`, `--dream-min-sessions`, or `--no-auto-dream`.
 
-**Try it out:**
+### Try it out
 
 ```bash
-# 1. Save some notes and manually consolidate
+# Save some notes and manually consolidate
 cc-mini --auto-approve
 > /remember I prefer Python over JavaScript
 > /remember Our project uses gRPC + PostgreSQL
 > /dream                    # reads daily logs, creates topic files + MEMORY.md
 > /memory                   # verify the memory index
 
-# 2. Start a new session — the model should recall your preferences
+# Start a new session — the model should recall your preferences
 cc-mini
 > What do you know about my preferences?
 
-# 3. Test auto-dream (default: 24h + 5 sessions, use flags to lower for testing)
-#    First, accumulate a few sessions:
+# Test auto-dream (default: 24h + 5 sessions; use flags to lower thresholds for testing)
 for i in $(seq 1 3); do cc-mini "session $i"; done
-#    Then start with lowered thresholds:
 cc-mini --dream-interval 0 --dream-min-sessions 1 --auto-approve
 > hello
-#    Auto-dream triggers after the response
+# Auto-dream triggers after the response
 ```
 
 Data is stored in `~/.mini-claude/` (memory in `memory/`, sessions in `sessions/`).
 
+---
+
 ## Sandbox
 
-The sandbox feature runs BashTool commands inside a [bubblewrap (bwrap)](https://github.com/containers/bubblewrap) sandbox on Linux, restricting filesystem writes and network access. This prevents accidental or malicious destructive operations.
+> **Advanced feature** — fully implemented in the codebase, not formally released.
+
+Runs BashTool commands inside a [bubblewrap (bwrap)](https://github.com/containers/bubblewrap) sandbox on Linux, restricting filesystem writes and network access. Prevents accidental or malicious destructive operations.
 
 ### How it works
 
 When sandbox is enabled, every Bash command is wrapped with bwrap:
 
-- The entire filesystem is mounted **read-only** (`--ro-bind / /`)
+- Entire filesystem mounted **read-only** (`--ro-bind / /`)
 - Only the current working directory is **writable** (`--bind $CWD $CWD`)
-- Network access is **isolated** by default (`--unshare-net`)
-- Configuration files (`.cc-mini.toml`, `CLAUDE.md`) are **protected** from modification
-- PID namespace is isolated (`--unshare-pid`)
+- Network access **isolated** by default (`--unshare-net`)
+- Configuration files (`.cc-mini.toml`, `CLAUDE.md`) **protected** from modification
+- PID namespace isolated (`--unshare-pid`)
 
 ### Sandbox modes
 
@@ -485,8 +512,6 @@ When sandbox is enabled, every Bash command is wrapped with bwrap:
 | `disabled` | No sandbox (default) |
 
 ### Configure via REPL
-
-Use the `/sandbox` command in the interactive REPL:
 
 ```
 > /sandbox                     # interactive mode selector
@@ -537,7 +562,9 @@ Dependency errors:
   bubblewrap (bwrap) not found. Install: apt install bubblewrap
 ```
 
-## Project structure
+---
+
+## Project Structure
 
 ```
 src/core/
@@ -579,7 +606,9 @@ src/core/
     └── storage.py    # JSON persistence
 ```
 
-## Running tests
+---
+
+## Running Tests
 
 ```bash
 # All tests
@@ -591,6 +620,8 @@ pytest tests/test_sandbox*.py -v
 # Skip integration tests that require bwrap
 pytest tests/ -v -k "not integration"
 ```
+
+---
 
 ## Tips
 
