@@ -78,7 +78,15 @@ export OPENAI_API_KEY=sk-...
 export OPENAI_BASE_URL=https://your-gateway.example.com/v1
 ```
 
-### Run
+Local LM Studio setup (OpenAI-compatible):
+
+```bash
+export CC_MINI_PROVIDER=lmstudio
+# LM Studio usually doesn't require a key, but cc-mini defaults to 'lm-studio'
+# Default base-url is http://localhost:1234/v1
+```
+
+Optional environment variables for runtime defaults:
 
 ```bash
 cc-mini                              # Interactive REPL
@@ -102,10 +110,106 @@ Found 12 Python files...
 ↳ Read(src/core/engine.py) ✓
 The submit() method implements an agentic loop...
 
-> /buddy
-Hatching your companion...
-✨ SHINY LEGENDARY DUCK
-Glitch Quack hatched! ★★★★★
+### One-shot prompt
+
+```bash
+cc-mini "what tests exist in this project?"
+```
+
+### Non-interactive / scripted mode
+
+Use `-p` to print the response and exit:
+
+```bash
+cc-mini -p "summarize this codebase in 3 bullets"
+```
+
+Pipe input:
+
+```bash
+echo "what does engine.py do?" | cc-mini -p
+```
+
+### Auto-approve permissions
+
+Skip permission prompts for all tools (use with care):
+
+```bash
+cc-mini --auto-approve
+```
+
+### Configure API endpoint and model
+
+```bash
+cc-mini \
+  --provider anthropic \
+  --base-url https://your-gateway.example.com \
+  --api-key sk-ant-... \
+  --model claude-sonnet-4
+```
+
+`max_tokens` follows the selected model by default. Override when needed:
+
+```bash
+cc-mini --model claude-3-5-haiku --max-tokens 2048
+```
+
+OpenAI-compatible example:
+
+```bash
+cc-mini \
+  --provider openai \
+  --base-url https://your-openai-gateway.example.com/v1 \
+  --api-key sk-... \
+  --model gpt-4.1-mini \
+  --effort medium
+```
+
+For quick testing, you can also use an OpenAI-compatible gateway such as OpenRouter with a free model:
+
+```bash
+cc-mini \
+  --provider openai \
+  --base-url https://openrouter.ai/api/v1 \
+  --api-key sk-or-... \
+  --model qwen/qwen3.6-plus-preview:free
+```
+
+### Configure with a TOML file
+
+Config files are loaded in order (later overrides earlier):
+
+1. `~/.config/cc-mini/config.toml`
+2. `.cc-mini.toml` in the current working directory
+
+Point to a specific file with `--config`.
+
+```toml
+provider = "anthropic"  # or "openai"
+
+[anthropic]
+api_key = "sk-ant-..."
+base_url = "https://your-gateway.example.com"
+model = "claude-sonnet-4"
+
+[openai]
+api_key = "sk-..."
+base_url = "https://your-openai-gateway.example.com/v1"
+model = "gpt-4.1-mini"
+max_tokens = 8192
+effort = "medium"
+buddy_model = "gpt-4.1-mini"
+
+[lmstudio]
+# api_key defaults to "lm-studio"
+# base_url defaults to "http://localhost:1234/v1"
+model = "local-model"
+```
+
+OpenRouter example for low-cost testing:
+
+```toml
+provider = "openai"
 
 > /review
 Running skill: /review…

@@ -1,10 +1,34 @@
+from unittest.mock import MagicMock, patch
 from core.llm import (
+    LLMClient,
     _to_openai_messages,
     _tool_schema_to_openai,
     default_companion_model,
     supports_reasoning_effort,
+    _LMSTUDIO_PROVIDER,
 )
 
+
+def test_lmstudio_client_initialization():
+    with patch("core.llm.OpenAI") as mock_openai:
+        client = LLMClient(provider=_LMSTUDIO_PROVIDER)
+        assert client.provider == _LMSTUDIO_PROVIDER
+        mock_openai.assert_called_once_with(
+            api_key="lm-studio",
+            base_url="http://localhost:1234/v1"
+        )
+
+def test_lmstudio_client_custom_config():
+    with patch("core.llm.OpenAI") as mock_openai:
+        client = LLMClient(
+            provider=_LMSTUDIO_PROVIDER,
+            api_key="custom-key",
+            base_url="http://127.0.0.1:5678/v1"
+        )
+        mock_openai.assert_called_once_with(
+            api_key="custom-key",
+            base_url="http://127.0.0.1:5678/v1"
+        )
 
 def test_to_openai_messages_maps_tool_roundtrip():
     messages = [
@@ -86,3 +110,17 @@ def test_openai_reasoning_effort_support():
 
 def test_default_companion_model_uses_main_model_for_openai():
     assert default_companion_model("openai", "gpt-4.1-mini") == "gpt-4.1-mini"
+
+
+def test_lmstudio_defaults():
+    from core.llm import (
+        default_model_for_provider,
+        default_companion_model,
+        default_max_tokens_for_provider,
+        validate_provider,
+    )
+    assert validate_provider("lmstudio") == "lmstudio"
+    assert default_model_for_provider("lmstudio") == "local-model"
+    assert default_companion_model("lmstudio", "my-model") == "my-model"
+    assert default_max_tokens_for_provider("lmstudio") == 8192
+    assert supports_reasoning_effort("lmstudio", "any-model") is False

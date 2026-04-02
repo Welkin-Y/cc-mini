@@ -22,7 +22,8 @@ ProviderName = str
 
 _ANTHROPIC_PROVIDER = "anthropic"
 _OPENAI_PROVIDER = "openai"
-_VALID_PROVIDERS = {_ANTHROPIC_PROVIDER, _OPENAI_PROVIDER}
+_LMSTUDIO_PROVIDER = "lmstudio"
+_VALID_PROVIDERS = {_ANTHROPIC_PROVIDER, _OPENAI_PROVIDER, _LMSTUDIO_PROVIDER}
 
 
 @dataclass
@@ -50,19 +51,21 @@ def default_model_for_provider(provider: str) -> str:
     provider = validate_provider(provider)
     if provider == _OPENAI_PROVIDER:
         return "gpt-4.1-mini"
+    if provider == _LMSTUDIO_PROVIDER:
+        return "local-model"
     return "claude-sonnet-4-20250514"
 
 
 def default_companion_model(provider: str, model: str) -> str:
     provider = validate_provider(provider)
-    if provider == _OPENAI_PROVIDER:
+    if provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
         return model
     return "claude-haiku-4-5-20251001"
 
 
 def default_max_tokens_for_provider(provider: str) -> int:
     provider = validate_provider(provider)
-    if provider == _OPENAI_PROVIDER:
+    if provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
         return 8192
     return 32000
 
@@ -83,11 +86,16 @@ class LLMClient:
         base_url: str | None = None,
     ):
         self.provider = validate_provider(provider)
+        if self.provider == _LMSTUDIO_PROVIDER:
+            if not base_url:
+                base_url = "http://localhost:1234/v1"
+            if not api_key:
+                api_key = "lm-studio"
         self._api_key = api_key
         self._base_url = base_url
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             if OpenAI is None:
-                message = "OpenAI support requires the `openai` package to be installed."
+                message = "OpenAI/LM Studio support requires the `openai` package to be installed."
                 if _OPENAI_IMPORT_ERROR is not None:
                     message += f" Import failed: {_OPENAI_IMPORT_ERROR}"
                 raise ValueError(message)
@@ -105,7 +113,7 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         effort: str | None = None,
     ) -> LLMMessage:
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return self._openai_create_message(
                 model=model,
                 max_tokens=max_tokens,
@@ -132,7 +140,7 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         effort: str | None = None,
     ):
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return _OpenAIStream(
                 client=self._client,
                 model=model,
@@ -152,12 +160,12 @@ class LLMClient:
         )
 
     def is_authentication_error(self, exc: Exception) -> bool:
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(exc, openai.AuthenticationError)
         return isinstance(exc, anthropic.AuthenticationError)
 
     def is_retryable_error(self, exc: Exception) -> bool:
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(
                 exc,
                 (
@@ -176,7 +184,7 @@ class LLMClient:
         )
 
     def is_api_error(self, exc: Exception) -> bool:
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(exc, openai.APIError)
         return isinstance(exc, anthropic.APIError)
 

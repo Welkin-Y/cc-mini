@@ -211,7 +211,7 @@ def load_app_config(args: Namespace) -> AppConfig:
 def _load_file_values(explicit_path: str | None) -> tuple[dict[str, Any], tuple[Path, ...]]:
     values: dict[str, Any] = {
         "top": {},
-        "providers": {"anthropic": {}, "openai": {}},
+        "providers": {"anthropic": {}, "openai": {}, "lmstudio": {}},
     }
     loaded_paths: list[Path] = []
 
@@ -243,10 +243,10 @@ def _read_config_file(path: Path) -> dict[str, Any]:
 
     values: dict[str, Any] = {
         "top": {},
-        "providers": {"anthropic": {}, "openai": {}},
+        "providers": {"anthropic": {}, "openai": {}, "lmstudio": {}},
     }
 
-    for provider in ("anthropic", "openai"):
+    for provider in ("anthropic", "openai", "lmstudio"):
         section = data.get(provider, {})
         if isinstance(section, dict):
             values["providers"][provider].update(section)
@@ -278,6 +278,10 @@ def _load_env_values() -> dict[str, Any]:
         values["openai_api_key"] = os.environ["OPENAI_API_KEY"]
     if os.getenv("OPENAI_BASE_URL"):
         values["openai_base_url"] = os.environ["OPENAI_BASE_URL"]
+    if os.getenv("LMSTUDIO_API_KEY"):
+        values["lmstudio_api_key"] = os.environ["LMSTUDIO_API_KEY"]
+    if os.getenv("LMSTUDIO_BASE_URL"):
+        values["lmstudio_base_url"] = os.environ["LMSTUDIO_BASE_URL"]
     if os.getenv("ANTHROPIC_API_KEY"):
         values["anthropic_api_key"] = os.environ["ANTHROPIC_API_KEY"]
     if os.getenv("ANTHROPIC_BASE_URL"):
@@ -321,6 +325,10 @@ def _parse_effort(raw_value: Any) -> str | None:
 def _infer_provider(provider_values: dict[str, dict[str, Any]]) -> str:
     openai_values = provider_values.get("openai", {})
     anthropic_values = provider_values.get("anthropic", {})
+    lmstudio_values = provider_values.get("lmstudio", {})
+
+    if lmstudio_values and not openai_values and not anthropic_values:
+        return "lmstudio"
     if openai_values and not anthropic_values:
         return "openai"
     return DEFAULT_PROVIDER
@@ -328,7 +336,7 @@ def _infer_provider(provider_values: dict[str, dict[str, Any]]) -> str:
 
 def _merge_file_values(target: dict[str, Any], incoming: dict[str, Any]) -> None:
     target["top"].update(incoming.get("top", {}))
-    for provider in ("anthropic", "openai"):
+    for provider in ("anthropic", "openai", "lmstudio"):
         target["providers"][provider].update(incoming.get("providers", {}).get(provider, {}))
 
 
@@ -338,6 +346,11 @@ def _provider_env_values(env_values: dict[str, Any], provider: str) -> dict[str,
         return {
             "api_key": env_values.get("openai_api_key"),
             "base_url": env_values.get("openai_base_url"),
+        }
+    if provider == "lmstudio":
+        return {
+            "api_key": env_values.get("lmstudio_api_key"),
+            "base_url": env_values.get("lmstudio_base_url"),
         }
     return {
         "api_key": env_values.get("anthropic_api_key"),
