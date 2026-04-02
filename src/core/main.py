@@ -963,6 +963,24 @@ def main() -> None:
                         else:
                             assistant_text = str(content)
                         if assistant_text.strip():
+                            # Update companion mood based on this turn
+                            try:
+                                import time as _time
+                                from .buddy.mood import classify_events, apply_events, apply_decay
+                                from .buddy.storage import load_active_mood, save_active_mood
+                                now_ms = int(_time.time() * 1000)
+                                current_mood = load_active_mood()
+                                current_mood = apply_decay(current_mood, now_ms)
+                                events = classify_events(assistant_text, user_input)
+                                if events:
+                                    current_mood = apply_events(current_mood, events)
+                                save_active_mood(current_mood)
+                                # Refresh companion with updated mood
+                                comp = get_companion()
+                                if animator and comp:
+                                    animator.update_companion(comp)
+                            except Exception:
+                                pass
                             fire_companion_observer(
                                 assistant_text, comp, engine._client, _set_reaction,
                                 model=app_config.buddy_model or app_config.model,

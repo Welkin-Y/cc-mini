@@ -13,6 +13,7 @@ from rich.text import Text
 
 from .sprites import render_face, render_sprite
 from .types import (
+    MOOD_DIMENSIONS,
     RARITY_COLORS,
     RARITY_STARS,
     STAT_NAMES,
@@ -67,6 +68,16 @@ def render_companion_card(companion: Companion, console: Console) -> None:
         val = companion.stats.get(stat, 0)
         bar = _stat_bar(val)
         lines.append(f'  {stat:<10} {bar} {val:>3}')
+
+    # Mood
+    lines.append('')
+    lines.append('  Mood:')
+    mood = companion.mood
+    for dim in MOOD_DIMENSIONS:
+        val = getattr(mood, dim)
+        bar = _stat_bar(val)
+        lines.append(f'  {dim.capitalize():<10} {bar} {val:>3}')
+    lines.append(f'  Feeling: {mood.dominant().lower()}')
 
     # Hatched date
     from datetime import datetime, timezone
@@ -210,7 +221,8 @@ def render_compact_status(companion: Companion) -> str:
     )
     stars = RARITY_STARS.get(companion.rarity, '\u2605')
     shiny = ' \u2728' if companion.shiny else ''
-    return f'  {face} {companion.name} the {companion.species} {stars}{shiny}'
+    dominant = companion.mood.dominant().lower()
+    return f'  {face} {companion.name} the {companion.species} {stars}{shiny} ({dominant})'
 
 
 def render_speech_bubble(text: str, color: str = 'dim') -> str:

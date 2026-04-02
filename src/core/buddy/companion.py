@@ -28,6 +28,7 @@ from .types import (
     STAT_NAMES,
     Companion,
     CompanionBones,
+    CompanionMood,
     StoredCompanion,
 )
 
@@ -172,6 +173,7 @@ def _companion_from_stored(
     stored_personality: str,
     stored_hatched_at: int,
     seed: str,
+    mood: CompanionMood | None = None,
 ) -> Companion:
     """Build a full Companion by regenerating bones from seed."""
     bones = roll_with_seed(seed).bones
@@ -185,12 +187,13 @@ def _companion_from_stored(
         name=stored_name,
         personality=stored_personality,
         hatched_at=stored_hatched_at,
+        mood=mood or CompanionMood(),
     )
 
 
 def get_companion() -> Companion | None:
     """Get the full active companion if one has been hatched, or None."""
-    from .storage import load_stored_companion, load_active_seed
+    from .storage import load_stored_companion, load_active_seed, load_active_mood
 
     stored = load_stored_companion()
     if stored is None:
@@ -199,8 +202,9 @@ def get_companion() -> Companion | None:
     if not seed:
         # Fallback for legacy data
         seed = companion_user_id() + SALT
+    mood = load_active_mood()
     return _companion_from_stored(
-        stored.name, stored.personality, stored.hatched_at, seed,
+        stored.name, stored.personality, stored.hatched_at, seed, mood,
     )
 
 

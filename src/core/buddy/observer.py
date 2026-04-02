@@ -97,6 +97,13 @@ def fire_companion_observer(
                 f'- CHAOS: High = random and unpredictable, Low = orderly and steady\n'
                 f'- WISDOM: High = thoughtful and deep, Low = naive and simple\n'
                 f'- SNARK: High = sarcastic and witty, Low = earnest and sweet\n\n'
+            )
+
+            # Inject mood description
+            from .mood import describe_mood
+            system_prompt += describe_mood(companion.mood) + '\n\n'
+
+            system_prompt += (
                 f'IMPORTANT: Always reply in the same language the user is using. '
                 f'If they write in Chinese, reply in Chinese. If English, reply in English. '
                 f'You are playful but never hostile or rude. '

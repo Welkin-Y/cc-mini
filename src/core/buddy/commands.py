@@ -2,8 +2,10 @@
 
 Subcommands:
   /buddy          — hatch (first time) or show companion card
+  /buddy help     — show all commands and gameplay guide
   /buddy pet      — pet your companion (heart animation)
   /buddy stats    — show detailed stats
+  /buddy mood     — show current mood
   /buddy new      — hatch a new random companion
   /buddy list     — view all companions (仓库)
   /buddy select N  — switch active companion to #N
@@ -175,6 +177,96 @@ def _pet_animation(console: Console) -> None:
 
     console.print(f'[dim]{companion.name} wiggles happily.[/dim]')
 
+    # Pet boosts mood
+    try:
+        from .mood import apply_events, apply_decay
+        from .storage import load_active_mood, save_active_mood
+        now_ms = int(time.time() * 1000)
+        mood = load_active_mood()
+        mood = apply_decay(mood, now_ms)
+        mood = apply_events(mood, ['pet'])
+        save_active_mood(mood)
+    except Exception:
+        pass
+
+
+def _render_mood(companion, console: Console) -> None:
+    """Show mood detail for a companion."""
+    from .types import RARITY_COLORS, MOOD_DIMENSIONS, MOOD_NEUTRAL
+    from .render import _stat_bar
+
+    color = RARITY_COLORS.get(companion.rarity, 'dim')
+    mood = companion.mood
+    console.print(f'\n[{color}]{companion.name}\'s mood:[/{color}]')
+    for dim in MOOD_DIMENSIONS:
+        val = getattr(mood, dim)
+        bar = _stat_bar(val)
+        if abs(val - MOOD_NEUTRAL) < 10:
+            label = 'neutral'
+        elif val > MOOD_NEUTRAL:
+            label = 'high'
+        else:
+            label = 'low'
+        console.print(f'  {dim.capitalize():<10} {bar} {val:>3} ({label})')
+    console.print(f'\n[dim]Dominant mood: {mood.dominant().lower()}[/dim]')
+
+
+def _render_help(console: Console) -> None:
+    """Show all buddy commands and gameplay guide."""
+    from rich.panel import Panel
+    from rich.text import Text
+
+    help_text = (
+        "[bold]Commands[/bold]\n"
+        "\n"
+        "  [cyan]/buddy[/cyan]              Hatch your first companion, or show its card\n"
+        "  [cyan]/buddy help[/cyan]          Show this help\n"
+        "  [cyan]/buddy pet[/cyan]           Pet your companion (heart animation, boosts happy)\n"
+        "  [cyan]/buddy stats[/cyan]         Show companion card with stats and mood\n"
+        "  [cyan]/buddy mood[/cyan]          Show current mood details\n"
+        "  [cyan]/buddy new[/cyan]           Hatch an additional random companion\n"
+        "  [cyan]/buddy list[/cyan]          View all companions in your collection\n"
+        "  [cyan]/buddy select N[/cyan]      Switch active companion to #N\n"
+        "  [cyan]/buddy mute[/cyan]          Mute companion speech bubbles\n"
+        "  [cyan]/buddy unmute[/cyan]        Unmute companion speech bubbles\n"
+        "  [cyan]/buddy ia[/cyan]            Start the Poke Game adventure\n"
+        "\n"
+        "[bold]Gameplay Guide[/bold]\n"
+        "\n"
+        "  [yellow]Hatching[/yellow]  Your first companion is determined by your username.\n"
+        "            Use [cyan]/buddy new[/cyan] to hatch more with random seeds.\n"
+        "            18 species, 5 rarities (Common to Legendary), 1% shiny chance.\n"
+        "\n"
+        "  [yellow]Stats[/yellow]    Each companion has 5 permanent stats (0-100):\n"
+        "            DEBUGGING, PATIENCE, CHAOS, WISDOM, SNARK.\n"
+        "            These shape how your companion talks and reacts.\n"
+        "\n"
+        "  [yellow]Mood[/yellow]     6 dynamic mood dimensions that change over time:\n"
+        "            Happy, Bored, Excited, Tired, Grumpy, Curious.\n"
+        "            Mood is affected by your coding activity:\n"
+        "            - Task success / bug fixes  ->  happy, excited\n"
+        "            - Errors / failures         ->  grumpy, tired\n"
+        "            - Reading / exploring code  ->  curious\n"
+        "            - Petting ([cyan]/buddy pet[/cyan])     ->  happy, excited\n"
+        "            - Long idle time            ->  bored\n"
+        "            Mood gradually decays back to neutral over time.\n"
+        "\n"
+        "  [yellow]Talking[/yellow]  Your companion reacts after each Claude response.\n"
+        "            Address it by name to chat directly (20-turn memory).\n"
+        "            Its tone adapts to both stats and current mood.\n"
+        "\n"
+        "  [yellow]Pikachu[/yellow]  Set CC_MINI_BUDDY_SEED=pikachu-3361 before hatching\n"
+        "            to unlock the secret Legendary Pikachu species."
+    )
+
+    panel = Panel(
+        help_text,
+        title="[bold]Buddy — AI Companion Pet[/bold]",
+        border_style="cyan",
+        padding=(1, 2),
+    )
+    console.print(panel)
+
 
 def handle_buddy_command(
     args: str,
@@ -192,6 +284,9 @@ def handle_buddy_command(
             render_companion_card(companion, console)
         else:
             _hatch(client, console, model)
+
+    elif subcmd == 'help':
+        _render_help(console)
 
     elif subcmd == 'pet':
         companion = get_companion()
@@ -214,6 +309,13 @@ def handle_buddy_command(
     elif subcmd == 'unmute':
         save_companion_muted(False)
         console.print('[dim]Companion reactions unmuted.[/dim]')
+
+    elif subcmd == 'mood':
+        companion = get_companion()
+        if not companion:
+            console.print('[dim]No companion yet. Type /buddy to hatch one![/dim]')
+        else:
+            _render_mood(companion, console)
 
     elif subcmd == 'ia':
         from .poke_game import start_game
@@ -245,5 +347,5 @@ def handle_buddy_command(
 
     else:
         console.print(
-            '[dim]Usage: /buddy [pet|stats|new|list|select N|mute|unmute|ia][/dim]'
+            '[dim]Usage: /buddy [help|pet|stats|mood|new|list|select N|mute|unmute|ia][/dim]'
           )

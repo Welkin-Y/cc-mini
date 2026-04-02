@@ -77,6 +77,18 @@ class CompanionAnimator:
         """Set the app.invalidate callback for toolbar refresh."""
         self._invalidate = fn
 
+    def update_companion(self, companion: Companion) -> None:
+        """Refresh the companion reference (e.g. after mood update)."""
+        self.companion = companion
+        self._bones = CompanionBones(
+            rarity=companion.rarity,
+            species=companion.species,
+            eye=companion.eye,
+            hat=companion.hat,
+            shiny=companion.shiny,
+            stats=companion.stats,
+        )
+
     def start(self) -> None:
         self._running = True
         self._schedule_tick()
@@ -156,7 +168,8 @@ class CompanionAnimator:
         result: list[tuple[str, str]] = []
 
         shiny_tag = ' \u2728' if comp.shiny else ''
-        name_line = f' {comp.name} the {comp.species} {stars}{shiny_tag}'
+        dominant = comp.mood.dominant().lower()
+        name_line = f' {comp.name} the {comp.species} {stars}{shiny_tag}  [{dominant}]'
 
         # Assemble sprite lines (with optional heart on top)
         sprite_lines_full = []

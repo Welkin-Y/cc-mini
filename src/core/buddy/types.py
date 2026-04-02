@@ -75,6 +75,13 @@ HATS = ('none', 'crown', 'tophat', 'propeller', 'halo', 'wizard', 'beanie', 'tin
 STAT_NAMES = ('DEBUGGING', 'PATIENCE', 'CHAOS', 'WISDOM', 'SNARK')
 
 # ---------------------------------------------------------------------------
+# Mood
+# ---------------------------------------------------------------------------
+
+MOOD_DIMENSIONS = ('happy', 'bored', 'excited', 'tired', 'grumpy', 'curious')
+MOOD_NEUTRAL = 50
+
+# ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
 
@@ -88,6 +95,49 @@ class CompanionBones:
     hat: str
     shiny: bool
     stats: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CompanionMood:
+    """Dynamic mood state — changes based on conversation events."""
+    happy: int = MOOD_NEUTRAL
+    bored: int = MOOD_NEUTRAL
+    excited: int = MOOD_NEUTRAL
+    tired: int = MOOD_NEUTRAL
+    grumpy: int = MOOD_NEUTRAL
+    curious: int = MOOD_NEUTRAL
+    last_updated: int = 0  # ms since epoch
+
+    def to_dict(self) -> dict:
+        return {
+            'happy': self.happy, 'bored': self.bored,
+            'excited': self.excited, 'tired': self.tired,
+            'grumpy': self.grumpy, 'curious': self.curious,
+            'lastUpdated': self.last_updated,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'CompanionMood':
+        return cls(
+            happy=d.get('happy', MOOD_NEUTRAL),
+            bored=d.get('bored', MOOD_NEUTRAL),
+            excited=d.get('excited', MOOD_NEUTRAL),
+            tired=d.get('tired', MOOD_NEUTRAL),
+            grumpy=d.get('grumpy', MOOD_NEUTRAL),
+            curious=d.get('curious', MOOD_NEUTRAL),
+            last_updated=d.get('lastUpdated', 0),
+        )
+
+    def dominant(self) -> str:
+        """Return the mood dimension furthest from neutral."""
+        best_dim = 'happy'
+        best_dist = 0
+        for dim in MOOD_DIMENSIONS:
+            dist = abs(getattr(self, dim) - MOOD_NEUTRAL)
+            if dist > best_dist:
+                best_dist = dist
+                best_dim = dim
+        return best_dim
 
 
 @dataclass(frozen=True)
@@ -126,3 +176,5 @@ class Companion:
     personality: str
     # Metadata
     hatched_at: int
+    # Mood
+    mood: CompanionMood = field(default_factory=CompanionMood)

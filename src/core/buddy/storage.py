@@ -19,7 +19,7 @@ import json
 import time
 from pathlib import Path
 
-from .types import CompanionSoul, StoredCompanion, StoredCompanionWithSeed
+from .types import CompanionMood, CompanionSoul, StoredCompanion, StoredCompanionWithSeed
 
 _CONFIG_DIR = Path.home() / ".config" / "mini-claude"
 _COMPANION_FILE = _CONFIG_DIR / "companion.json"
@@ -243,3 +243,40 @@ def save_companion_muted(muted: bool, path: Path | None = None) -> None:
     data = _migrate_if_needed(data, _default_seed(), fp)
     data["muted"] = muted
     _write_data(data, fp)
+
+
+def load_active_mood(path: Path | None = None) -> CompanionMood:
+    """Load mood of the active companion. Returns neutral mood if missing."""
+    data = _read_data(path)
+    if data is None:
+        return CompanionMood()
+    try:
+        data = _migrate_if_needed(data, _default_seed(), path)
+        companions = data.get("companions", [])
+        active = data.get("active", 0)
+        if not companions or active >= len(companions):
+            return CompanionMood()
+        mood_data = companions[active].get("mood")
+        if mood_data is None:
+            return CompanionMood()
+        return CompanionMood.from_dict(mood_data)
+    except (KeyError, TypeError, IndexError):
+        return CompanionMood()
+
+
+def save_active_mood(mood: CompanionMood, path: Path | None = None) -> None:
+    """Save mood for the active companion."""
+    fp = path or _COMPANION_FILE
+    data = _read_data(fp)
+    if data is None:
+        return
+    try:
+        data = _migrate_if_needed(data, _default_seed(), fp)
+        companions = data.get("companions", [])
+        active = data.get("active", 0)
+        if not companions or active >= len(companions):
+            return
+        companions[active]["mood"] = mood.to_dict()
+        _write_data(data, fp)
+    except (KeyError, TypeError, IndexError):
+        pass
