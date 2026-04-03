@@ -290,6 +290,32 @@ pytest tests/ -v -k "not integration"  # skip bwrap tests
 
 ---
 
+## Docker
+
+`cc-mini` can be run in a containerized environment using Docker. A `Makefile` is provided for convenience.
+
+### Build the image
+
+```bash
+make build
+```
+
+### Run the interactive REPL
+
+```bash
+make run
+```
+
+### Open a bash session inside the container
+
+```bash
+make bash
+```
+
+See [docker-compose.yml](docker-compose.yml) for environment variable configuration (API keys, etc.).
+
+---
+
 ## Documentation
 
 | Topic | Link |

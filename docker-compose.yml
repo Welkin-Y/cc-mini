@@ -9,3 +9,5 @@ services:
     stdin_open: true
     tty: true
     working_dir: /app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
