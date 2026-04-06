@@ -34,6 +34,45 @@ def _args(**overrides):
     return Namespace(**values)
 
 
+def test_load_app_config_reads_lmstudio_section(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("CC_MINI_PROVIDER", raising=False)
+    monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+    monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
+
+    config_path = tmp_path / "cc-mini.toml"
+    config_path.write_text(
+        'provider = "lmstudio"\n'
+        '[lmstudio]\n'
+        'api_key = "lm-key"\n'
+        'base_url = "http://localhost:1234/v1"\n'
+        'model = "local-model"\n'
+        'max_tokens = 2048\n',
+        encoding="utf-8",
+    )
+
+    config = load_app_config(_args(config=str(config_path)))
+
+    assert config.provider == "lmstudio"
+    assert config.api_key == "lm-key"
+    assert config.base_url == "http://localhost:1234/v1"
+    assert config.model == "local-model"
+    assert config.max_tokens == 2048
+
+
+def test_lmstudio_env_wins_when_provider_is_lmstudio(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CC_MINI_PROVIDER", "lmstudio")
+    monkeypatch.setenv("LMSTUDIO_API_KEY", "lm-env-key")
+    monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
+    monkeypatch.setenv("CC_MINI_MODEL", "custom-local-model")
+
+    config = load_app_config(_args())
+
+    assert config.provider == "lmstudio"
+    assert config.api_key == "lm-env-key"
+    assert config.base_url == "http://127.0.0.1:1234/v1"
+    assert config.model == "custom-local-model"
+
+
 def test_resolve_model_keeps_full_model_name():
     assert resolve_model("claude-sonnet-4-20250514") == "claude-sonnet-4-20250514"
 

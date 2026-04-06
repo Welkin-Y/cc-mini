@@ -679,7 +679,7 @@ def main() -> None:
     parser.add_argument("--auto-approve", action="store_true",
                         help="Auto-approve all tool permissions (dangerous)")
     parser.add_argument("--config", help="Path to a TOML config file")
-    parser.add_argument("--provider", choices=("anthropic", "openai"),
+    parser.add_argument("--provider", choices=("anthropic", "openai", "lmstudio"),
                         help="API provider / wire format")
     parser.add_argument("--api-key", help="API key for the selected provider")
     parser.add_argument("--base-url", help="Custom API base URL for the selected provider")
