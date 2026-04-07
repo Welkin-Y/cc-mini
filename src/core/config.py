@@ -87,7 +87,7 @@ class AppConfig:
     max_tokens: int
     effort: str | None = None
     buddy_model: str | None = None
-    memory_dir: Path = Path.home() / ".mini-claude" / "memory"
+    memory_dir: Path = Path.home() / ".config" / "cc-mini" / "memory"
     dream_interval_hours: float = 24.0
     dream_min_sessions: int = 5
     auto_dream: bool = True
@@ -179,7 +179,7 @@ def load_app_config(args: Namespace) -> AppConfig:
         or env_values.get("memory_dir")
         or _file_value("memory_dir")
     )
-    memory_dir = Path(raw_memory_dir).expanduser() if raw_memory_dir else Path.home() / ".mini-claude" / "memory"
+    memory_dir = Path(raw_memory_dir).expanduser() if raw_memory_dir else Path.home() / ".config" / "cc-mini" / "memory"
 
     raw_dream_interval = getattr(args, "dream_interval", None)
     if raw_dream_interval is None:

@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.engine import Engine
     from core.tool import Tool
+    from core.permissions import PermissionChecker
 
 # ---------------------------------------------------------------------------
 # Word slug generation (simplified from utils/words.ts)
@@ -45,7 +46,7 @@ def _generate_slug() -> str:
 
 
 def _get_plans_dir() -> Path:
-    plans_dir = Path.home() / ".mini-claude" / "plans"
+    plans_dir = Path.home() / ".config" / "cc-mini" / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
     return plans_dir
 
@@ -64,13 +65,24 @@ class PlanModeManager:
 
     def __init__(self) -> None:
         self._engine: Engine | None = None
+        self._permissions: PermissionChecker | None = None
+        self._build_plan_worker_engine: Callable[[], object] | None = None
+        self._plan_worker_manager: object | None = None
         self._active: bool = False
         self._plan_file: Path | None = None
         self._saved_tools: list[Tool] | None = None
         self._saved_prompt: str | None = None
 
-    def bind_engine(self, engine: Engine) -> None:
+    def bind_engine(
+        self,
+        engine: Engine,
+        build_plan_worker_engine: Callable[[], object] | None = None,
+    ) -> None:
         self._engine = engine
+        self._build_plan_worker_engine = build_plan_worker_engine
+
+    def set_permissions(self, permissions: PermissionChecker) -> None:
+        self._permissions = permissions
 
     @property
     def is_active(self) -> bool:
@@ -79,6 +91,11 @@ class PlanModeManager:
     @property
     def plan_file_path(self) -> str | None:
         return str(self._plan_file) if self._plan_file else None
+
+    @property
+    def worker_manager(self) -> object | None:
+        """Plan-mode WorkerManager, if active and agents are enabled."""
+        return self._plan_worker_manager if self._active else None
 
     def get_plan_content(self) -> str | None:
         if self._plan_file and self._plan_file.exists():
@@ -129,6 +146,20 @@ class PlanModeManager:
             EnterPlanModeTool(self),
             ExitPlanModeTool(self),
         ]
+
+        # Add parallel subagent tools if worker engine builder is available
+        self._plan_worker_manager = None
+        if self._build_plan_worker_engine is not None:
+            from features.worker_manager import WorkerManager
+            from tools.agent import AgentTool, SendMessageTool, TaskStopTool
+
+            self._plan_worker_manager = WorkerManager(self._build_plan_worker_engine)
+            plan_tools.extend([
+                AgentTool(self._plan_worker_manager),
+                SendMessageTool(self._plan_worker_manager),
+                TaskStopTool(self._plan_worker_manager),
+            ])
+
         self._engine.set_tools(plan_tools)
 
         # Inject plan mode instructions into system prompt
@@ -137,6 +168,10 @@ class PlanModeManager:
         self._engine.system_prompt = self._saved_prompt + "\n\n" + plan_section
 
         self._active = True
+
+        # Transition permission context to plan mode
+        if self._permissions is not None:
+            self._permissions.enter_plan_mode()
 
         # Short message — detailed instructions are already in the system prompt.
         # Matches TS EnterPlanModeTool which returns a brief confirmation.
@@ -151,6 +186,10 @@ class PlanModeManager:
 
         plan_content = self.get_plan_content()
 
+        # Restore permission context before restoring tools
+        if self._permissions is not None:
+            self._permissions.exit_plan_mode()
+
         # Restore original state
         if self._saved_tools is not None:
             self._engine.set_tools(self._saved_tools)
@@ -160,6 +199,7 @@ class PlanModeManager:
         self._active = False
         self._saved_tools = None
         self._saved_prompt = None
+        self._plan_worker_manager = None
 
         plan_path = str(self._plan_file) if self._plan_file else "unknown"
 

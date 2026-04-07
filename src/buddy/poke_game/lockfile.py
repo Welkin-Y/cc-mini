@@ -10,7 +10,7 @@ import os
 import time
 from pathlib import Path
 
-_CONFIG_DIR = Path.home() / ".config" / "mini-claude"
+_CONFIG_DIR = Path.home() / ".config" / "cc-mini"
 _LOCK_FILE = _CONFIG_DIR / "ia_game.lock"
 _HEARTBEAT_INTERVAL = 30  # seconds
 _HEARTBEAT_TIMEOUT = 60   # seconds — stale if older

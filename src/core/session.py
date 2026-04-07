@@ -1,7 +1,7 @@
 """Session persistence — JSONL-based conversation storage.
 
 Modelled after claude-code's ``src/utils/sessionStorage.ts``.
-Each session is a pair of files under ``~/.mini-claude/sessions/{sanitized_cwd}/``:
+Each session is a pair of files under ``~/.config/cc-mini/sessions/{sanitized_cwd}/``:
 
 * ``{session_id}.jsonl``  — one JSON object per message
 * ``{session_id}.meta.json`` — lightweight metadata for fast listing
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 
-_SESSIONS_ROOT = Path.home() / ".mini-claude" / "sessions"
+_SESSIONS_ROOT = Path.home() / ".config" / "cc-mini" / "sessions"
 
 
 # ---------------------------------------------------------------------------

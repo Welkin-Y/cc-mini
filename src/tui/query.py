@@ -85,7 +85,12 @@ def run_query(engine: Engine, user_input: str | list, print_mode: bool,
                     if not quiet:
                         _, tool_name, tool_input, activity = event
                         n = len(pending_tools)
-                        if n > 1:
+                        if tool_name == "AskUserQuestion":
+                            # Interactive prompt — stop spinner so it renders on a clean line
+                            spinner.stop()
+                            _, line = next(iter(pending_tools.values()), ("", f"↳ {tool_name}"))
+                            console.print(f"[dim]{line}[/dim]", highlight=False)
+                        elif n > 1:
                             names = [tn for tn, _ in pending_tools.values()]
                             spinner.start(collapsed_tool_summary(names))
                         else:

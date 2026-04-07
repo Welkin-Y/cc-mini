@@ -8,8 +8,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-MEMORY_DIR = Path.home() / ".mini-claude" / "memory"
-SESSIONS_DIR = Path.home() / ".mini-claude" / "sessions"
+MEMORY_DIR = Path.home() / ".config" / "cc-mini" / "memory"
+SESSIONS_DIR = Path.home() / ".config" / "cc-mini" / "sessions"
 MAX_MEMORY_INDEX_CHARS = 10_000
 MAX_ENTRYPOINT_LINES = 200
 ENTRYPOINT_NAME = "MEMORY.md"

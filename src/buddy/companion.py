@@ -149,7 +149,7 @@ def roll_with_seed(seed: str) -> Roll:
 def companion_user_id() -> str:
     """Derive a stable user identity for companion generation.
 
-    Since mini-claude has no OAuth, use username@hostname as the seed.
+    Since cc-mini has no OAuth, use username@hostname as the seed.
     Same user on same machine always gets the same companion.
 
     Set CC_MINI_BUDDY_SEED env var to override (useful for testing).

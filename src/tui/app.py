@@ -60,7 +60,7 @@ from tui.input_parser import parse_input
 from tui.shell import run_shell, handle_sandbox_command
 
 console = Console()
-_HISTORY_FILE = Path.home() / ".cc_mini_history"
+_HISTORY_FILE = Path.home() / ".config" / "cc-mini" / "history"
 
 # Match claude-code-main: useDoublePress DOUBLE_PRESS_TIMEOUT_MS = 800
 _DOUBLE_PRESS_TIMEOUT_MS = 0.8
@@ -207,6 +207,30 @@ def main() -> None:
             effort=app_config.effort,
         )
 
+    def _build_plan_worker_engine() -> Engine:
+        """Build a read-only worker engine for plan-mode subagents."""
+        worker_permissions = PermissionChecker(
+            auto_approve=True,
+            sandbox_manager=sandbox_mgr,
+        )
+        worker_prompt = build_system_prompt(cwd=cwd, model=app_config.model, memory_dir=memory_dir)
+        worker_prompt += (
+            "\n\nYou are a read-only exploration agent. "
+            "Use Glob, Grep, Read, and Bash (read-only commands only) to research the codebase. "
+            "Report your findings clearly and concisely."
+        )
+        return Engine(
+            tools=[FileReadTool(), GlobTool(), GrepTool(), BashTool(sandbox_manager=sandbox_mgr)],
+            system_prompt=worker_prompt,
+            permission_checker=worker_permissions,
+            provider=app_config.provider,
+            api_key=app_config.api_key,
+            base_url=app_config.base_url,
+            model=app_config.model,
+            max_tokens=app_config.max_tokens,
+            effort=app_config.effort,
+        )
+
     worker_manager = WorkerManager(build_worker_engine=_build_worker_engine)
 
     # Plan mode manager
@@ -254,7 +278,8 @@ def main() -> None:
         session_store=session_store,
         cost_tracker=cost_tracker,
     )
-    plan_manager.bind_engine(engine)
+    plan_manager.bind_engine(engine, build_plan_worker_engine=_build_plan_worker_engine)
+    plan_manager.set_permissions(permissions)
     permissions.set_plan_manager(plan_manager)
     compact_service = CompactService(
         client=engine._client,
@@ -380,43 +405,56 @@ def main() -> None:
     _exiting = False
 
     def _drain_worker_notifications() -> None:
-        if not is_coordinator_mode() or _exiting:
+        if _exiting:
             return
-        while True:
-            notifications = worker_manager.drain_notifications()
-            if not notifications:
-                return
-            for notification in notifications:
-                # Extract summary info from XML notification
-                import re as _re
-                _desc = _re.search(r"<summary>(.*?)</summary>", notification)
-                _uses = _re.search(r"<tool_uses>(\d+)</tool_uses>", notification)
-                _dur = _re.search(r"<duration_ms>(\d+)</duration_ms>", notification)
-                _status = _re.search(r"<status>(.*?)</status>", notification)
-                desc = _desc.group(1) if _desc else "Worker update"
-                uses = _uses.group(1) if _uses else "?"
-                dur_s = f"{int(_dur.group(1)) / 1000:.1f}" if _dur else "?"
-                status = _status.group(1) if _status else "completed"
-                icon = "[green]●[/green]" if status == "completed" else "[red]●[/red]"
-                console.print(f"\n{icon} [dim]{desc} ({uses} tool uses, {dur_s}s)[/dim]")
-                try:
-                    run_query(engine, notification, print_mode=False, permissions=permissions)
-                except (KeyboardInterrupt, Exception):
-                    return
+        # Collect managers to drain: coordinator + plan-mode workers
+        managers_to_drain = []
+        if is_coordinator_mode():
+            managers_to_drain.append(worker_manager)
+        plan_wm = plan_manager.worker_manager
+        if plan_wm is not None:
+            managers_to_drain.append(plan_wm)
+        if not managers_to_drain:
+            return
+        for mgr in managers_to_drain:
+            while True:
+                notifications = mgr.drain_notifications()
+                if not notifications:
+                    break
+                for notification in notifications:
+                    # Extract summary info from XML notification
+                    import re as _re
+                    _desc = _re.search(r"<summary>(.*?)</summary>", notification)
+                    _uses = _re.search(r"<tool_uses>(\d+)</tool_uses>", notification)
+                    _dur = _re.search(r"<duration_ms>(\d+)</duration_ms>", notification)
+                    _status = _re.search(r"<status>(.*?)</status>", notification)
+                    desc = _desc.group(1) if _desc else "Worker update"
+                    uses = _uses.group(1) if _uses else "?"
+                    dur_s = f"{int(_dur.group(1)) / 1000:.1f}" if _dur else "?"
+                    status = _status.group(1) if _status else "completed"
+                    icon = "[green]●[/green]" if status == "completed" else "[red]●[/red]"
+                    console.print(f"\n{icon} [dim]{desc} ({uses} tool uses, {dur_s}s)[/dim]")
+                    try:
+                        run_query(engine, notification, print_mode=False, permissions=permissions)
+                    except (KeyboardInterrupt, Exception):
+                        return
 
     def _show_worker_status() -> None:
         """Show running worker status before prompt."""
-        if not is_coordinator_mode():
-            return
-        statuses = worker_manager.get_running_status()
-        if statuses:
-            for s in statuses:
-                uses = s["tool_uses"]
-                activity = s["activity"] or "working"
-                console.print(
-                    f"[dim]  ● {s['description']} — "
-                    f"{uses} tool use{'s' if uses != 1 else ''} · {activity}[/dim]"
-                )
+        # Collect statuses from coordinator + plan-mode workers
+        all_statuses = []
+        if is_coordinator_mode():
+            all_statuses.extend(worker_manager.get_running_status())
+        plan_wm = plan_manager.worker_manager
+        if plan_wm is not None:
+            all_statuses.extend(plan_wm.get_running_status())
+        for s in all_statuses:
+            uses = s["tool_uses"]
+            activity = s["activity"] or "working"
+            console.print(
+                f"[dim]  ● {s['description']} — "
+                f"{uses} tool use{'s' if uses != 1 else ''} · {activity}[/dim]"
+            )
 
     while True:
         _drain_worker_notifications()

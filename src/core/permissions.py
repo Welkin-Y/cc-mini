@@ -12,8 +12,12 @@ if TYPE_CHECKING:
 
 PermissionBehavior = Literal["allow", "deny"]
 
-# Tools allowed in plan mode (read-only + plan file writes)
-_PLAN_MODE_ALLOWED_TOOLS = {"Read", "Glob", "Grep", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"}
+# Tools allowed in plan mode (read-only + plan file writes + agent tools)
+_PLAN_MODE_ALLOWED_TOOLS = {
+    "Read", "Glob", "Grep", "AskUserQuestion",
+    "EnterPlanMode", "ExitPlanMode",
+    "Agent", "SendMessage", "TaskStop",
+}
 _PLAN_MODE_WRITE_TOOLS = {"Edit", "Write"}  # allowed only for plan file
 
 
@@ -30,6 +34,10 @@ class PermissionChecker:
         self._esc_listener: EscListener | None = None
         self._sandbox = sandbox_manager
         self._plan_manager: PlanModeManager | None = None
+        # Permission mode tracking (matches toolPermissionContext.mode in TS)
+        self._mode: str = "default"  # 'default' | 'plan'
+        self._pre_plan_mode: str | None = None
+        self._pre_plan_always_allow: set[str] | None = None
         # Dream mode: restrict writes to memory directory only
         self._dream_mode: bool = False
         self._dream_memory_dir: str | None = None
@@ -49,34 +57,37 @@ class PermissionChecker:
     def set_esc_listener(self, listener: EscListener | None):
         self._esc_listener = listener
 
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    def enter_plan_mode(self) -> None:
+        """Stash current permission state and switch to plan mode.
+
+        Corresponds to prepareContextForPlanMode() in permissionSetup.ts.
+        """
+        self._pre_plan_mode = self._mode
+        self._pre_plan_always_allow = set(self._always_allow)
+        self._mode = "plan"
+        # Strip dangerous always-allow rules during plan mode
+        self._always_allow -= {"Bash", "Edit", "Write", "Agent"}
+
+    def exit_plan_mode(self) -> None:
+        """Restore permission state from before plan mode."""
+        self._mode = self._pre_plan_mode or "default"
+        self._pre_plan_mode = None
+        if self._pre_plan_always_allow is not None:
+            self._always_allow = self._pre_plan_always_allow
+            self._pre_plan_always_allow = None
+
     def check(self, tool: Tool, inputs: dict) -> PermissionBehavior:
         # Dream mode: strict isolation — read-only + memory-dir writes only
         if self._dream_mode:
             return self._check_dream(tool, inputs)
 
         # Plan mode restrictions: only allow read-only tools + plan file writes
-        if self._plan_manager is not None and self._plan_manager.is_active:
-            if tool.name in _PLAN_MODE_ALLOWED_TOOLS:
-                return "allow"
-            if tool.name in _PLAN_MODE_WRITE_TOOLS:
-                # Only allow writing to the plan file
-                file_path = inputs.get("file_path", "")
-                plan_path = self._plan_manager.plan_file_path
-                if plan_path and file_path == plan_path:
-                    return "allow"
-                from rich.console import Console
-                Console().print(
-                    f"[yellow]Plan mode: can only edit the plan file "
-                    f"({plan_path})[/yellow]"
-                )
-                return "deny"
-            # Block everything else (Bash, etc.)
-            from rich.console import Console
-            Console().print(
-                f"[yellow]Plan mode: {tool.name} is not allowed. "
-                f"Only read-only tools and plan file editing are permitted.[/yellow]"
-            )
-            return "deny"
+        if self._mode == "plan":
+            return self._check_plan(tool, inputs)
 
         if tool.is_read_only():
             return "allow"
@@ -95,6 +106,28 @@ class PermissionChecker:
             return "allow"
 
         return self._prompt_user(tool, inputs)
+
+    def _check_plan(self, tool: Tool, inputs: dict) -> PermissionBehavior:
+        """Plan mode: read-only tools + plan file writes + agent tools."""
+        if tool.name in _PLAN_MODE_ALLOWED_TOOLS:
+            return "allow"
+        if tool.name in _PLAN_MODE_WRITE_TOOLS:
+            file_path = inputs.get("file_path", "")
+            plan_path = self._plan_manager.plan_file_path if self._plan_manager else None
+            if plan_path and file_path == plan_path:
+                return "allow"
+            from rich.console import Console
+            Console().print(
+                f"[yellow]Plan mode: can only edit the plan file "
+                f"({plan_path})[/yellow]"
+            )
+            return "deny"
+        from rich.console import Console
+        Console().print(
+            f"[yellow]Plan mode: {tool.name} is not allowed. "
+            f"Only read-only tools and plan file editing are permitted.[/yellow]"
+        )
+        return "deny"
 
     def _check_dream(self, tool: Tool, inputs: dict) -> PermissionBehavior:
         """Dream mode: read-only tools + Edit/Write only within memory dir."""

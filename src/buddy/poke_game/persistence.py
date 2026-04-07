@@ -1,7 +1,7 @@
 """Idle Adventure persistence — save/load tickets and badges between sessions.
 
 Only tickets and badges persist across runs. Everything else resets.
-Storage: ~/.config/mini-claude/companion_loot.json
+Storage: ~/.config/cc-mini/companion_loot.json
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from .types import GameSession, GAME_STAT_NAMES
 from .badges import ALL_BADGES
 
-_CONFIG_DIR = Path.home() / ".config" / "mini-claude"
+_CONFIG_DIR = Path.home() / ".config" / "cc-mini"
 _LOOT_FILE = _CONFIG_DIR / "companion_loot.json"
 
 # Regex to parse badge effects like "HP+5", "ATK+3,DEF+3", "全属性+3"

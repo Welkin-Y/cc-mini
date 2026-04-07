@@ -1,4 +1,4 @@
-"""Companion persistence — JSON storage at ~/.config/mini-claude/companion.json
+"""Companion persistence — JSON storage at ~/.config/cc-mini/companion.json
 
 Supports multiple companions. The JSON structure is:
 {
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .types import CompanionMood, CompanionSoul, StoredCompanion, StoredCompanionWithSeed
 
-_CONFIG_DIR = Path.home() / ".config" / "mini-claude"
+_CONFIG_DIR = Path.home() / ".config" / "cc-mini"
 _COMPANION_FILE = _CONFIG_DIR / "companion.json"
 
 
