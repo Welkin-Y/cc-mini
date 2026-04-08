@@ -292,17 +292,75 @@ def _cmd_model(ctx: CommandContext, args: str) -> None:
     from .config import resolve_model, default_max_tokens_for_model, DEFAULT_MODEL
 
     provider = ctx.app_config.provider
+    current = ctx.engine.get_model()
+
+    def _resolve_lmstudio_target(raw_args: str) -> str | None:
+        target = raw_args.strip()
+        if provider != "lmstudio":
+            return target
+
+        try:
+            available_models = ctx.engine.list_available_models()
+        except Exception as exc:
+            if target.isdigit():
+                ctx.console.print(
+                    f"[red]Could not resolve model index because LM Studio model listing failed: {exc}[/red]"
+                )
+                return None
+            return target
+
+        if not target.isdigit():
+            return target
+
+        index = int(target)
+        if index < 1 or index > len(available_models):
+            ctx.console.print(
+                f"[red]Invalid model index {index}. Use /model to see available LM Studio models.[/red]"
+            )
+            return None
+        return available_models[index - 1].id
 
     if args:
-        ctx.engine.set_model(args.strip())
+        target = _resolve_lmstudio_target(args)
+        if target is None:
+            return
+        ctx.engine.set_model(target)
         actual = ctx.engine.get_model()
         ctx.console.print(
             f"[green]✓[/green] Set model to [bold]{actual}[/bold]  "
             f"(max_tokens={default_max_tokens_for_model(actual, provider=provider)})")
         return
 
+    if provider == "lmstudio":
+        try:
+            available_models = ctx.engine.list_available_models()
+        except Exception as exc:
+            ctx.console.print(
+                f"[dim]Current model: {current}[/dim]\n"
+                f"[red]Could not load LM Studio models: {exc}[/red]\n"
+                f"[dim]Use /model <id> to switch models directly.[/dim]"
+            )
+            return
+
+        if not available_models:
+            ctx.console.print(
+                f"[dim]Current model: {current}[/dim]\n"
+                f"[dim]LM Studio reported no loaded models.[/dim]"
+            )
+            return
+
+        table = Table(title="LM Studio Models", show_header=True, header_style="bold cyan")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Model", style="green")
+        table.add_column("Status", style="dim", width=10)
+        for index, model in enumerate(available_models, 1):
+            status = "active" if model.id == current else ""
+            table.add_row(str(index), model.id, status)
+        ctx.console.print(table)
+        ctx.console.print("[dim]Use /model <number> or /model <id> to switch models.[/dim]")
+        return
+
     if provider != "anthropic":
-        current = ctx.engine.get_model()
         ctx.console.print(
             f"[dim]Current model: {current}[/dim]\n"
             f"[dim]Use /model <name> to switch models for the {provider} provider.[/dim]"
@@ -314,8 +372,6 @@ def _cmd_model(ctx: CommandContext, args: str) -> None:
     from prompt_toolkit.layout import Layout
     from prompt_toolkit.layout.containers import Window
     from prompt_toolkit.layout.controls import FormattedTextControl
-
-    current = ctx.engine.get_model()
 
     # Marketing name lookup
     _NAMES = {

@@ -3,7 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, Iterator
 from .config import DEFAULT_MODEL, default_max_tokens_for_model, resolve_model
-from .llm import LLMClient
+from .llm import LLMClient, LLMModel
 from .tools.base import Tool, ToolResult
 from .permissions import PermissionChecker
 
@@ -162,6 +162,9 @@ class Engine:
             self._model,
             provider=self._provider,
         )
+
+    def list_available_models(self) -> list[LLMModel]:
+        return self._client.list_models()
 
     def _persist(self, message: dict) -> None:
         """Append message to session store if available."""

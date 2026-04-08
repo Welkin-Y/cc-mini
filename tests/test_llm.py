@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 from core.llm import (
     LLMClient,
+    LLMModel,
     _to_openai_messages,
     _tool_schema_to_openai,
     default_companion_model,
@@ -124,3 +125,20 @@ def test_lmstudio_defaults():
     assert default_companion_model("lmstudio", "my-model") == "my-model"
     assert default_max_tokens_for_provider("lmstudio") == 8192
     assert supports_reasoning_effort("lmstudio", "any-model") is False
+
+
+def test_lmstudio_list_models_reads_openai_compatible_models():
+    with patch("core.llm.OpenAI") as mock_openai:
+        sdk_client = mock_openai.return_value
+        sdk_client.models.list.return_value = [
+            MagicMock(id="model-a"),
+            MagicMock(id="model-b"),
+            MagicMock(id="model-a"),
+        ]
+
+        client = LLMClient(provider=_LMSTUDIO_PROVIDER)
+
+    assert client.list_models() == [
+        LLMModel(id="model-a"),
+        LLMModel(id="model-b"),
+    ]

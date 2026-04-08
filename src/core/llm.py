@@ -41,6 +41,11 @@ class LLMMessage:
     usage: LLMUsage | None = None
 
 
+@dataclass(frozen=True)
+class LLMModel:
+    id: str
+
+
 def validate_provider(provider: str | None) -> ProviderName:
     normalized = (provider or _ANTHROPIC_PROVIDER).strip().lower()
     if normalized not in _VALID_PROVIDERS:
@@ -190,6 +195,21 @@ class LLMClient:
         if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(exc, openai.APIError)
         return isinstance(exc, anthropic.APIError)
+
+    def list_models(self) -> list[LLMModel]:
+        if self.provider not in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
+            return []
+
+        response = self._client.models.list()
+        models: list[LLMModel] = []
+        seen: set[str] = set()
+        for item in response:
+            model_id = getattr(item, "id", None)
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            models.append(LLMModel(id=model_id))
+        return models
 
     @staticmethod
     def error_message(exc: Exception) -> str:
