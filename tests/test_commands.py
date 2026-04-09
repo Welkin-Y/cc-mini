@@ -1,5 +1,5 @@
 from io import StringIO
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
@@ -91,3 +91,10 @@ def test_model_rejects_invalid_lmstudio_index():
 
     assert engine.get_model() == "model-a"
     assert "Invalid model index 9" in output.getvalue()
+
+
+def test_engine_uses_loaded_lmstudio_model_instead_of_placeholder():
+    with patch("core.engine.LLMClient.list_models", return_value=[LLMModel(id="model-a")]):
+        engine = _make_engine(model="local-model")
+
+    assert engine.get_model() == "model-a"

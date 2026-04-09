@@ -1,3 +1,4 @@
+import httpx
 from unittest.mock import MagicMock, patch
 from core.llm import (
     LLMClient,
@@ -127,7 +128,38 @@ def test_lmstudio_defaults():
     assert supports_reasoning_effort("lmstudio", "any-model") is False
 
 
-def test_lmstudio_list_models_reads_openai_compatible_models():
+def test_lmstudio_list_models_reads_loaded_models_from_native_endpoint():
+    with patch("core.llm.OpenAI") as mock_openai:
+        sdk_client = mock_openai.return_value
+        sdk_client.models.list.return_value = []
+        with patch("core.llm.httpx.get") as mock_get:
+            mock_response = mock_get.return_value
+            mock_response.json.return_value = {
+                "models": [
+                    {
+                        "type": "llm",
+                        "loaded_instances": [{"id": "model-a"}, {"id": "model-b"}],
+                    },
+                    {
+                        "type": "llm",
+                        "loaded_instances": [{"id": "model-a"}],
+                    },
+                    {
+                        "type": "embedding",
+                        "loaded_instances": [{"id": "embed-a"}],
+                    },
+                ]
+            }
+            mock_response.raise_for_status.return_value = None
+
+            client = LLMClient(provider=_LMSTUDIO_PROVIDER)
+            assert client.list_models() == [
+                LLMModel(id="model-a"),
+                LLMModel(id="model-b"),
+            ]
+
+
+def test_lmstudio_list_models_falls_back_to_openai_compatible_models():
     with patch("core.llm.OpenAI") as mock_openai:
         sdk_client = mock_openai.return_value
         sdk_client.models.list.return_value = [
@@ -135,8 +167,8 @@ def test_lmstudio_list_models_reads_openai_compatible_models():
             MagicMock(id="model-b"),
             MagicMock(id="model-a"),
         ]
-
-        client = LLMClient(provider=_LMSTUDIO_PROVIDER)
+        with patch("core.llm.httpx.get", side_effect=httpx.ConnectError("offline")):
+            client = LLMClient(provider=_LMSTUDIO_PROVIDER)
 
     assert client.list_models() == [
         LLMModel(id="model-a"),

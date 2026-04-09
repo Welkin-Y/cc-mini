@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from urllib.parse import urlparse, urlunparse
 from typing import Any, Iterator
 
 import anthropic
@@ -200,6 +201,11 @@ class LLMClient:
         if self.provider not in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return []
 
+        if self.provider == _LMSTUDIO_PROVIDER:
+            native_models = self._list_lmstudio_loaded_models()
+            if native_models is not None:
+                return native_models
+
         response = self._client.models.list()
         models: list[LLMModel] = []
         seen: set[str] = set()
@@ -210,6 +216,48 @@ class LLMClient:
             seen.add(model_id)
             models.append(LLMModel(id=model_id))
         return models
+
+    def _list_lmstudio_loaded_models(self) -> list[LLMModel] | None:
+        endpoint = self._lmstudio_models_endpoint()
+        if endpoint is None:
+            return None
+
+        headers = {"Accept": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        try:
+            response = httpx.get(endpoint, headers=headers, timeout=5.0)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            return None
+
+        models: list[LLMModel] = []
+        seen: set[str] = set()
+        for model in payload.get("models", []):
+            if model.get("type") != "llm":
+                continue
+            for instance in model.get("loaded_instances", []):
+                model_id = instance.get("id")
+                if not model_id or model_id in seen:
+                    continue
+                seen.add(model_id)
+                models.append(LLMModel(id=model_id))
+        return models
+
+    def _lmstudio_models_endpoint(self) -> str | None:
+        if not self._base_url:
+            return None
+        parsed = urlparse(self._base_url)
+        if not parsed.scheme or not parsed.netloc:
+            return None
+        path = parsed.path.rstrip("/")
+        if path.endswith("/v1"):
+            path = f"{path[:-3]}/api/v1/models"
+        else:
+            path = "/api/v1/models"
+        return urlunparse(parsed._replace(path=path, params="", query="", fragment=""))
 
     @staticmethod
     def error_message(exc: Exception) -> str:

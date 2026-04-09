@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 _MAX_RETRIES = 3
 _RETRY_BACKOFF = (1, 3, 10)
+_LMSTUDIO_PLACEHOLDER_MODEL = "local-model"
 
 
 class AbortedError(Exception):
@@ -120,6 +121,12 @@ class Engine:
             api_key=api_key,
             base_url=base_url,
         )
+        if self._provider == "lmstudio" and self._model == _LMSTUDIO_PLACEHOLDER_MODEL:
+            self._model = self._detect_default_lmstudio_model()
+            self._max_tokens = default_max_tokens_for_model(
+                self._model,
+                provider=provider,
+            )
         self._tools = {t.name: t for t in tools}
         self._system_prompt = system_prompt
         self._permissions = permission_checker
@@ -165,6 +172,15 @@ class Engine:
 
     def list_available_models(self) -> list[LLMModel]:
         return self._client.list_models()
+
+    def _detect_default_lmstudio_model(self) -> str:
+        try:
+            available_models = self._client.list_models()
+        except Exception:
+            return self._model
+        if not available_models:
+            return self._model
+        return available_models[0].id
 
     def _persist(self, message: dict) -> None:
         """Append message to session store if available."""
