@@ -18,7 +18,8 @@ COPY tests ./tests
 COPY docs ./docs
 COPY assets ./assets
 COPY install.sh ./install.sh
+COPY notebooks ./notebooks
 
-RUN pip install -e ".[dev]"
+RUN pip install -e ".[dev,notebook]"
 
 CMD ["cc-mini"]

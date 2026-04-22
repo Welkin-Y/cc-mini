@@ -86,6 +86,31 @@ cc-mini --resume 1                   # Resume previous session
 cc-mini --coordinator                # Coordinator mode
 ```
 
+### Jupyter Notebook UI
+
+For notebook environments, install the notebook extra and launch the widget app from a cell:
+
+```bash
+pip install -e ".[dev,notebook]"
+```
+
+```python
+from tui.notebook import create_default_notebook_app
+
+app = create_default_notebook_app()
+app.display()
+```
+
+From Docker, start Jupyter Lab and open the starter notebook in your browser:
+
+```bash
+make jupyter
+```
+
+Then open `http://localhost:8888/lab/tree/notebooks/cc_mini.ipynb`.
+
+The Docker port is published on `127.0.0.1` only, so the notebook is reachable from your local browser but not exposed on the LAN by default.
+
 ### Docker
 
 The repo includes a reusable Python 3.9 image plus a compose service configured for LM Studio on the Docker host by default.
@@ -97,6 +122,16 @@ make run
 ```
 
 The default container LM Studio endpoint is `http://host.docker.internal:1234/v1`, which is the right hostname when LM Studio runs on your local Windows machine and `cc-mini` runs in Docker. See [README_LMS.md](README_LMS.md) for the full setup.
+
+### LangChain Tool Fallback
+
+For OpenAI-compatible providers that reject native `tool_calls`, install the LangChain extra:
+
+```bash
+pip install -e ".[dev,langchain]"
+```
+
+When the provider returns a tool-calling API error, `cc-mini` will fall back to a LangChain ReAct-style tool loop instead of failing immediately.
 
 ### First Session Demo
 

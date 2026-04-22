@@ -11,6 +11,8 @@ services:
     volumes:
       - .:/workspace
       - cc-mini-data:/root/.config/cc-mini
+    ports:
+      - "127.0.0.1:${JUPYTER_PORT:-8888}:8888"
     environment:
       CC_MINI_PROVIDER: ${CC_MINI_PROVIDER:-lmstudio}
       CC_MINI_MODEL: ${CC_MINI_MODEL:-local-model}

@@ -8,6 +8,11 @@ from .config import DEFAULT_MODEL, default_max_tokens_for_model, resolve_model
 from .llm import LLMClient
 from .tool import Tool, ToolResult
 from .permissions import PermissionChecker
+from features.langchain_fallback import (
+    LangChainFallbackUnavailable,
+    LangChainToolSpec,
+    run_langchain_agent,
+)
 
 if TYPE_CHECKING:
     from features.cost_tracker import CostTracker
@@ -84,6 +89,7 @@ class Engine:
         self._active_stream = None  # reference to current HTTP stream
         self._session_store = session_store
         self._cost_tracker = cost_tracker
+        self._used_langchain_fallback = False
 
     # -- message accessors (for compact / resume / commands) ----------------
 
@@ -194,6 +200,7 @@ class Engine:
           AbortedError — if abort() was called (by Esc listener or Ctrl+C)
         """
         self._aborted = False
+        self._used_langchain_fallback = False
         self._turn_start_len = len(self._messages)
         self._messages.append({
             "role": "user",
@@ -258,6 +265,17 @@ class Engine:
                             self._messages.pop()
                             yield ("error", f"Authentication failed: {self._client.error_message(e)}")
                             return
+                        if (
+                            not self._used_langchain_fallback
+                            and self._client.should_use_langchain_tool_fallback(e)
+                        ):
+                            self._used_langchain_fallback = True
+                            try:
+                                for event in self._run_langchain_fallback():
+                                    yield event
+                                return
+                            except LangChainFallbackUnavailable as fallback_exc:
+                                yield ("error", str(fallback_exc))
                         # Context overflow: reduce max_tokens and retry
                         err_msg = self._client.error_message(e)
                         if self._client.is_api_error(e) and _CONTEXT_OVERFLOW_RE.search(err_msg):
@@ -407,6 +425,47 @@ class Engine:
         except AbortedError:
             self.cancel_turn()
             raise
+
+    def _run_langchain_fallback(self) -> Iterator[tuple]:
+        recorded_events: list[tuple] = []
+
+        def _build_spec(tool: Tool) -> LangChainToolSpec:
+            def _invoke(tool_input: dict[str, Any]) -> str:
+                activity = tool.get_activity_description(**tool_input)
+                recorded_events.append(("tool_call", tool.name, tool_input, activity))
+                if self._permissions.check(tool, tool_input) == "deny":
+                    result = ToolResult(content="Permission denied.", is_error=True)
+                else:
+                    recorded_events.append(("tool_executing", tool.name, tool_input, activity))
+                    result = tool.execute(**tool_input)
+                recorded_events.append(("tool_result", tool.name, tool_input, result))
+                return result.content
+
+            return LangChainToolSpec(
+                name=tool.name,
+                description=tool.description,
+                input_schema=tool.input_schema,
+                invoke=_invoke,
+            )
+
+        text = run_langchain_agent(
+            model=self._model,
+            api_key=self._client._api_key,
+            base_url=self._client._base_url,
+            system_prompt=self._system_prompt,
+            messages=self._messages,
+            tool_specs=[_build_spec(tool) for tool in self._tools.values()],
+        )
+        assistant_message = {
+            "role": "assistant",
+            "content": [{"type": "text", "text": text}],
+        }
+        self._messages.append(assistant_message)
+        self._persist(assistant_message)
+        for event in recorded_events:
+            yield event
+        if text:
+            yield ("text", text)
 
     def _execute_tool(self, tool_use, skip_permission: bool = False) -> ToolResult:
         tool_name = _block_name(tool_use)

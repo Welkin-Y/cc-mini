@@ -163,3 +163,22 @@ def test_engine_normalizes_tool_result_blocks_before_follow_up_request():
         "content": "Echo: world",
         "is_error": False,
     }]
+
+
+def test_engine_falls_back_to_langchain_when_native_tools_are_unsupported():
+    engine = _make_engine()
+
+    def _fake_run_langchain_agent(**kwargs):
+        kwargs["tool_specs"][0].invoke({"message": "fallback"})
+        return "fallback done"
+
+    with patch.object(engine._client, "stream_messages", side_effect=RuntimeError("tool_calls not supported")):
+        with patch.object(engine._client, "should_use_langchain_tool_fallback", return_value=True):
+            with patch("core.engine.run_langchain_agent", side_effect=_fake_run_langchain_agent):
+                events = list(engine.submit("use fallback"))
+
+    tool_results = [event for event in events if event[0] == "tool_result"]
+    text_events = [event for event in events if event[0] == "text"]
+
+    assert tool_results[0][3].content == "Echo: fallback"
+    assert any(event[1] == "fallback done" for event in text_events)

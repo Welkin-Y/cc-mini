@@ -4,6 +4,7 @@ from core.permissions import PermissionChecker
 from tools.file_read import FileReadTool
 from tools.bash import BashTool
 from tools.file_edit import FileEditTool
+from tools.file_write import FileWriteTool
 
 
 def test_read_only_tool_always_allowed():
@@ -48,4 +49,48 @@ def test_always_caches_approval():
         checker.check(BashTool(), {"command": "echo first"})
     # Second call should NOT prompt — already cached via _always_allow
     result = checker.check(BashTool(), {"command": "echo second"})
+    assert result == "allow"
+
+
+def test_dream_mode_allows_write_within_memory_dir(tmp_path):
+    checker = PermissionChecker()
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    target = memory_dir / "journal.md"
+
+    checker.enter_dream_mode(str(memory_dir))
+    result = checker.check(FileWriteTool(), {"file_path": str(target), "content": "ok"})
+
+    assert result == "allow"
+
+
+def test_dream_mode_denies_prefix_match_outside_memory_dir(tmp_path):
+    checker = PermissionChecker()
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    outside = tmp_path / "memory-escaped" / "journal.md"
+    outside.parent.mkdir()
+
+    checker.enter_dream_mode(str(memory_dir))
+    result = checker.check(FileWriteTool(), {"file_path": str(outside), "content": "nope"})
+
+    assert result == "deny"
+
+
+def test_plan_mode_allows_resolved_plan_path(tmp_path):
+    checker = PermissionChecker()
+    plan_file = tmp_path / "plan.md"
+    plan_file.write_text("plan", encoding="utf-8")
+
+    class _PlanManager:
+        plan_file_path = str(plan_file)
+
+    checker.set_plan_manager(_PlanManager())
+    checker.enter_plan_mode()
+    result = checker.check(FileEditTool(), {
+        "file_path": str(plan_file.resolve()),
+        "old_string": "plan",
+        "new_string": "done",
+    })
+
     assert result == "allow"

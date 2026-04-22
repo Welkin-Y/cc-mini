@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import sys
 import select
-from typing import Literal, TYPE_CHECKING, Optional
+from typing import Callable, Literal, TYPE_CHECKING, Optional
 from .tool import Tool
 
 if TYPE_CHECKING:
@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from features.plan import PlanModeManager
 
 PermissionBehavior = Literal["allow", "deny"]
+PermissionPromptResponse = Literal["allow", "deny", "always"]
 
 # Tools allowed in plan mode (read-only + plan file writes + agent tools)
 _PLAN_MODE_ALLOWED_TOOLS = {
@@ -21,6 +22,27 @@ _PLAN_MODE_ALLOWED_TOOLS = {
 _PLAN_MODE_WRITE_TOOLS = {"Edit", "Write"}  # allowed only for plan file
 
 
+def _same_resolved_path(left: str, right: Optional[str]) -> bool:
+    if not right:
+        return False
+    try:
+        return os.path.realpath(left) == os.path.realpath(right)
+    except OSError:
+        return False
+
+
+def _is_within_resolved_dir(file_path: str, directory: Optional[str]) -> bool:
+    if not directory:
+        return False
+    try:
+        return os.path.commonpath([
+            os.path.realpath(file_path),
+            os.path.realpath(directory),
+        ]) == os.path.realpath(directory)
+    except (OSError, ValueError):
+        return False
+
+
 class PermissionChecker:
     """Read-only tools are auto-allowed. Bash/writes prompt the user (y/n/always)."""
 
@@ -28,11 +50,13 @@ class PermissionChecker:
         self,
         auto_approve: bool = False,
         sandbox_manager: Optional[SandboxManager] = None,
+        prompt_provider: Optional[Callable[[Tool, dict], PermissionPromptResponse]] = None,
     ):
         self._auto_approve = auto_approve
         self._always_allow: set[str] = set()
         self._esc_listener: Optional[EscListener] = None
         self._sandbox = sandbox_manager
+        self._prompt_provider = prompt_provider
         self._plan_manager: Optional[PlanModeManager] = None
         # Permission mode tracking (matches toolPermissionContext.mode in TS)
         self._mode: str = "default"  # 'default' | 'plan'
@@ -114,7 +138,7 @@ class PermissionChecker:
         if tool.name in _PLAN_MODE_WRITE_TOOLS:
             file_path = inputs.get("file_path", "")
             plan_path = self._plan_manager.plan_file_path if self._plan_manager else None
-            if plan_path and file_path == plan_path:
+            if isinstance(file_path, str) and _same_resolved_path(file_path, plan_path):
                 return "allow"
             from rich.console import Console
             Console().print(
@@ -138,7 +162,7 @@ class PermissionChecker:
             if (
                 self._dream_memory_dir
                 and isinstance(file_path, str)
-                and os.path.realpath(file_path).startswith(self._dream_memory_dir)
+                and _is_within_resolved_dir(file_path, self._dream_memory_dir)
             ):
                 return "allow"
             return "deny"
@@ -146,6 +170,13 @@ class PermissionChecker:
         return "deny"
 
     def _prompt_user(self, tool: Tool, inputs: dict) -> PermissionBehavior:
+        if self._prompt_provider is not None:
+            response = self._prompt_provider(tool, inputs)
+            if response == "always":
+                self._always_allow.add(tool.name)
+                return "allow"
+            return response
+
         from rich.console import Console
         console = Console()
         console.print(f"\n[bold yellow]Permission required:[/bold yellow] [bold]{tool.name}[/bold]")
