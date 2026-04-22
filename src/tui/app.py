@@ -1,11 +1,11 @@
 """cc-mini entry point — argparse, engine setup, and interactive REPL."""
 from __future__ import annotations
 
+from typing import Optional
 import argparse
 import os
 import sys
 import time
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +15,7 @@ from rich.console import Console
 from core.config import load_app_config
 from core.context import build_system_prompt
 from core.engine import AbortedError, Engine
+from core.llm import LLMClient
 from tools import AskUserQuestionTool
 from tools import AgentTool, SendMessageTool, TaskStopTool
 from tools import BashTool
@@ -69,7 +70,7 @@ _DOUBLE_PRESS_TIMEOUT_MS = 0.8
 def _run_dream(engine: Engine, memory_dir: Path,
                permissions: PermissionChecker, quiet: bool = False,
                transcript_dir: str = "",
-               session_ids: list[str] | None = None) -> None:
+               session_ids: Optional[list[str]] = None) -> None:
     """Run dream consolidation: snapshot messages, submit dream prompt, restore.
 
     Mirrors TS autoDream.ts — auto-dream (quiet=True) gets permission isolation;
@@ -98,10 +99,34 @@ def _run_dream(engine: Engine, memory_dir: Path,
             permissions.exit_dream_mode()
 
     # Rebuild system prompt to pick up updated MEMORY.md
-    engine.system_prompt = build_system_prompt(model=app_config.model, memory_dir=memory_dir)
+    engine.system_prompt = build_system_prompt(model=engine.get_model(), memory_dir=memory_dir)
     record_consolidation(memory_dir)
     if not quiet:
         console.print("[dim]Dream consolidation complete. Memory index updated.[/dim]")
+
+
+def _resolve_initial_model(app_config) -> str:
+    model = app_config.model
+    if app_config.provider != "lmstudio":
+        return model
+    try:
+        client = LLMClient(
+            provider=app_config.provider,
+            api_key=app_config.api_key,
+            base_url=app_config.base_url,
+        )
+        models = client.list_models()
+    except Exception:
+        models = []
+    if models:
+        if model in models:
+            return model
+        return models[0]
+    if app_config.model_list:
+        if model in app_config.model_list:
+            return model
+        return app_config.model_list[0]
+    return model
 
 
 def main() -> None:
@@ -113,7 +138,7 @@ def main() -> None:
     parser.add_argument("--auto-approve", action="store_true",
                         help="Auto-approve all tool permissions (dangerous)")
     parser.add_argument("--config", help="Path to a TOML config file")
-    parser.add_argument("--provider", choices=("anthropic", "openai"),
+    parser.add_argument("--provider", choices=("anthropic", "openai", "lmstudio"),
                         help="API provider / wire format")
     parser.add_argument("--api-key", help="API key for the selected provider")
     parser.add_argument("--base-url", help="Custom API base URL for the selected provider")
@@ -122,8 +147,6 @@ def main() -> None:
                         help="Maximum output tokens for each model response")
     parser.add_argument("--effort", choices=("low", "medium", "high"),
                         help="Optional reasoning effort for supported OpenAI models")
-    parser.add_argument("--buddy-model",
-                        help="Override the model used by buddy / companion side-features")
     parser.add_argument("--resume", metavar="SESSION",
                         help="Resume a previous session (id or index)")
     parser.add_argument("--memory-dir", help="Override memory directory path")
@@ -160,6 +183,11 @@ def main() -> None:
     if args.coordinator:
         set_coordinator_mode(True)
 
+    current_model = [_resolve_initial_model(app_config)]
+
+    def _current_model() -> str:
+        return current_model[0]
+
     def _build_base_tools() -> list:
         return [
             FileReadTool(), GlobTool(), GrepTool(),
@@ -170,7 +198,7 @@ def main() -> None:
     worker_tool_names = [tool.name for tool in _build_base_tools()]
 
     def _build_system_prompt_for_mode(coordinator_enabled: bool) -> str:
-        prompt = build_system_prompt(cwd=cwd, model=app_config.model, memory_dir=memory_dir)
+        prompt = build_system_prompt(cwd=cwd, model=_current_model(), memory_dir=memory_dir)
         if skills_section:
             prompt += "\n\n" + skills_section
         if coordinator_enabled:
@@ -191,7 +219,7 @@ def main() -> None:
             auto_approve=True,
             sandbox_manager=sandbox_mgr,
         )
-        worker_prompt = build_system_prompt(cwd=cwd, model=app_config.model, memory_dir=memory_dir)
+        worker_prompt = build_system_prompt(cwd=cwd, model=_current_model(), memory_dir=memory_dir)
         if skills_section:
             worker_prompt += "\n\n" + skills_section
         worker_prompt += "\n\n" + get_worker_system_prompt()
@@ -202,7 +230,7 @@ def main() -> None:
             provider=app_config.provider,
             api_key=app_config.api_key,
             base_url=app_config.base_url,
-            model=app_config.model,
+            model=_current_model(),
             max_tokens=app_config.max_tokens,
             effort=app_config.effort,
         )
@@ -213,7 +241,7 @@ def main() -> None:
             auto_approve=True,
             sandbox_manager=sandbox_mgr,
         )
-        worker_prompt = build_system_prompt(cwd=cwd, model=app_config.model, memory_dir=memory_dir)
+        worker_prompt = build_system_prompt(cwd=cwd, model=_current_model(), memory_dir=memory_dir)
         worker_prompt += (
             "\n\nYou are a read-only exploration agent. "
             "Use Glob, Grep, Read, and Bash (read-only commands only) to research the codebase. "
@@ -226,7 +254,7 @@ def main() -> None:
             provider=app_config.provider,
             api_key=app_config.api_key,
             base_url=app_config.base_url,
-            model=app_config.model,
+            model=_current_model(),
             max_tokens=app_config.max_tokens,
             effort=app_config.effort,
         )
@@ -257,11 +285,11 @@ def main() -> None:
 
     # Session & compact services
     cost_tracker = CostTracker()
-    session_store: SessionStore | None = None
+    session_store: Optional[SessionStore] = None
     if not args.print:
         session_store = SessionStore(
             cwd=cwd,
-            model=app_config.model,
+            model=_current_model(),
             mode=current_session_mode(),
         )
 
@@ -272,22 +300,23 @@ def main() -> None:
         provider=app_config.provider,
         api_key=app_config.api_key,
         base_url=app_config.base_url,
-        model=app_config.model,
+        model=_current_model(),
         max_tokens=app_config.max_tokens,
         effort=app_config.effort,
         session_store=session_store,
         cost_tracker=cost_tracker,
     )
+    current_model[0] = engine.get_model()
     plan_manager.bind_engine(engine, build_plan_worker_engine=_build_plan_worker_engine)
     plan_manager.set_permissions(permissions)
     permissions.set_plan_manager(plan_manager)
     compact_service = CompactService(
         client=engine._client,
-        model=app_config.model,
+        model=engine.get_model(),
         effort=app_config.effort,
     )
 
-    def _apply_session_mode(session_mode: str | None) -> str | None:
+    def _apply_session_mode(session_mode: Optional[str]) -> Optional[str]:
         warning = match_session_mode(session_mode)
         enabled = is_coordinator_mode()
         engine.set_tools(_build_tools_for_mode(enabled))
@@ -317,7 +346,7 @@ def main() -> None:
                 engine.set_messages(msgs)
                 session_store = SessionStore(
                     cwd=cwd,
-                    model=app_config.model,
+                    model=_current_model(),
                     session_id=target.session_id,
                     mode=current_session_mode(),
                 )
@@ -344,7 +373,7 @@ def main() -> None:
 
     # Interactive REPL
     config_note = (
-        f"[dim]{app_config.provider}:{app_config.model} · "
+        f"[dim]{app_config.provider}:{_current_model()} · "
         f"max_tokens={app_config.max_tokens}[/dim]"
     )
     if is_coordinator_mode():
@@ -362,45 +391,7 @@ def main() -> None:
     # Terminal mode state — shared mutable ref toggled by "!" key binding
     _terminal_mode_ref = [False]
 
-    # Companion animator — drives real-time idle animation in bottom_toolbar
-    # Matches CompanionSprite.tsx tick-based animation system
     animator = None
-    try:
-        from buddy.companion import get_companion
-        from buddy.storage import load_companion_muted
-        from buddy.animator import CompanionAnimator
-        if not load_companion_muted():
-            comp = get_companion()
-            if comp:
-                animator = CompanionAnimator(comp)
-    except Exception:
-        pass
-
-    def _set_reaction(text: str, print_to_terminal: bool = False) -> None:
-        """Observer callback — delivers reaction to animator's toolbar bubble.
-
-        For normal mode (reacting to Claude): only shows in toolbar bubble.
-        For direct address mode: also prints to terminal scroll history.
-        """
-        if animator:
-            animator.set_reaction(text)
-        if print_to_terminal:
-            try:
-                from buddy.companion import get_companion
-                from buddy.types import RARITY_COLORS
-                from buddy.sprites import render_face
-                from buddy.types import CompanionBones
-                comp = get_companion()
-                if comp:
-                    color = RARITY_COLORS.get(comp.rarity, 'dim')
-                    bones = CompanionBones(
-                        rarity=comp.rarity, species=comp.species,
-                        eye=comp.eye, hat=comp.hat, shiny=comp.shiny, stats=comp.stats,
-                    )
-                    face = render_face(bones)
-                    console.print(f'\n[{color}]{face} {comp.name}:[/{color}] [{color} italic]{text}[/{color} italic]')
-            except Exception:
-                pass
 
     _exiting = False
 
@@ -460,51 +451,27 @@ def main() -> None:
         _drain_worker_notifications()
         _show_worker_status()
 
-        # Start/restart animator before each prompt (picks up newly hatched companions)
-        if animator is None:
-            try:
-                from buddy.companion import get_companion
-                from buddy.storage import load_companion_muted
-                from buddy.animator import CompanionAnimator
-                if not load_companion_muted():
-                    comp = get_companion()
-                    if comp:
-                        animator = CompanionAnimator(comp)
-            except Exception:
-                pass
-
         try:
-            if animator:
-                animator.start()
             console.print()
             _terminal_mode_ref[0] = False  # always start in chat mode
             user_input = bordered_prompt(
                 console,
                 history=_file_history,
                 completer=slash_completer,
-                animator_toolbar=animator.toolbar_text if animator else None,
-                refresh_interval=0.5 if animator else None,
                 terminal_mode_ref=_terminal_mode_ref,
             ).strip()
         except KeyboardInterrupt:
             now = time.monotonic()
             if now - last_ctrlc_time <= _DOUBLE_PRESS_TIMEOUT_MS:
                 _exiting = True
-                if animator:
-                    animator.stop()
                 console.print("\n[dim]Goodbye.[/dim]")
                 break
             last_ctrlc_time = now
             console.print("\n[dim yellow]Press Ctrl+C again to exit[/dim yellow]")
             continue
         except EOFError:
-            if animator:
-                animator.stop()
             console.print("\n[dim]Goodbye.[/dim]")
             break
-        finally:
-            if animator:
-                animator.stop()
 
         # Reset double-press timer on any normal input
         last_ctrlc_time = 0.0
@@ -538,29 +505,6 @@ def main() -> None:
             if cmd_name in ("exit", "quit"):
                 console.print("[dim]Goodbye.[/dim]")
                 break
-            # /buddy is handled separately (companion pet)
-            if cmd_name == "buddy":
-                from buddy.commands import handle_buddy_command
-                handle_buddy_command(
-                    cmd_args,
-                    engine._client,
-                    console,
-                    app_config.buddy_model or app_config.model,
-                )
-                # Refresh animator in case companion was just hatched
-                try:
-                    from buddy.companion import get_companion
-                    from buddy.storage import load_companion_muted
-                    from buddy.animator import CompanionAnimator
-                    if not load_companion_muted():
-                        comp = get_companion()
-                        if comp:
-                            animator = CompanionAnimator(comp)
-                    else:
-                        animator = None
-                except Exception:
-                    pass
-                continue
             cmd_ctx = CommandContext(
                 engine=engine,
                 session_store=session_store,
@@ -573,11 +517,12 @@ def main() -> None:
                 cost_tracker=cost_tracker,
                 new_session_store=lambda: SessionStore(
                     cwd=cwd,
-                    model=app_config.model,
+                    model=_current_model(),
                     mode=current_session_mode(),
                 ),
                 reconfigure_mode=_apply_session_mode,
                 plan_manager=plan_manager,
+                on_model_change=lambda model: current_model.__setitem__(0, model),
             )
             handle_command(cmd_name, cmd_args, cmd_ctx)
             session_store = cmd_ctx.session_store
@@ -591,7 +536,7 @@ def main() -> None:
                 continue
 
         # Auto-compact when approaching token limits
-        if should_compact(engine.get_messages(), model=app_config.model,
+        if should_compact(engine.get_messages(), model=_current_model(),
                           last_input_tokens=cost_tracker.last_input_tokens):
             console.print("[dim]Auto-compacting conversation…[/dim]")
             try:
@@ -602,86 +547,8 @@ def main() -> None:
             except Exception as e:
                 console.print(f"[dim red]Auto-compact failed: {e}[/dim red]")
 
-        # Check if user is talking directly to companion — skip Claude, let
-        # companion reply directly via observer (no awkward "." response)
-        _companion_addressed = False
-        try:
-            from buddy.companion import get_companion
-            from buddy.storage import load_companion_muted
-            from buddy.observer import fire_companion_observer, _is_addressed
-            if not load_companion_muted():
-                comp = get_companion()
-                if comp and _is_addressed(user_input, comp.name):
-                    _companion_addressed = True
-                    import threading
-                    reply_event = threading.Event()
-                    def _direct_reply(text: str) -> None:
-                        _set_reaction(text, print_to_terminal=True)
-                        reply_event.set()
-                    fire_companion_observer(
-                        '', comp, engine._client, _direct_reply,
-                        model=app_config.buddy_model or app_config.model,
-                        user_msg=user_input,
-                    )
-                    reply_event.wait(timeout=10)
-        except Exception:
-            pass
-
-        if _companion_addressed:
-            continue
-
         run_query(engine, parse_input(user_input), print_mode=False, permissions=permissions)
         _drain_worker_notifications()
-
-        # Fire companion observer in background after each turn
-        try:
-            from buddy.companion import get_companion
-            from buddy.storage import load_companion_muted
-            from buddy.observer import fire_companion_observer
-            if not load_companion_muted():
-                comp = get_companion()
-                if comp and engine._messages:
-                    last_msg = engine._messages[-1]
-                    if last_msg.get("role") == "assistant":
-                        content = last_msg.get("content", "")
-                        if isinstance(content, str):
-                            assistant_text = content
-                        elif isinstance(content, list):
-                            parts = []
-                            for block in content:
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    parts.append(block.get("text", ""))
-                                elif hasattr(block, "text"):
-                                    parts.append(block.text)
-                            assistant_text = ' '.join(parts)
-                        else:
-                            assistant_text = str(content)
-                        if assistant_text.strip():
-                            # Update companion mood based on this turn
-                            try:
-                                import time as _time
-                                from buddy.mood import classify_events, apply_events, apply_decay
-                                from buddy.storage import load_active_mood, save_active_mood
-                                now_ms = int(_time.time() * 1000)
-                                current_mood = load_active_mood()
-                                current_mood = apply_decay(current_mood, now_ms)
-                                events = classify_events(assistant_text, user_input)
-                                if events:
-                                    current_mood = apply_events(current_mood, events)
-                                save_active_mood(current_mood)
-                                # Refresh companion with updated mood
-                                comp = get_companion()
-                                if animator and comp:
-                                    animator.update_companion(comp)
-                            except Exception:
-                                pass
-                            fire_companion_observer(
-                                assistant_text, comp, engine._client, _set_reaction,
-                                model=app_config.buddy_model or app_config.model,
-                                user_msg=user_input,
-                            )
-        except Exception:
-            pass  # Non-essential
 
         # Post-turn: extract <memory> tags
         text = engine.last_assistant_text()

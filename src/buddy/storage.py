@@ -15,6 +15,7 @@ auto-migrated on first read.
 """
 from __future__ import annotations
 
+from typing import Optional
 import json
 import time
 from pathlib import Path
@@ -29,7 +30,7 @@ def _ensure_dir() -> None:
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _read_data(path: Path | None = None) -> dict | None:
+def _read_data(path: Optional[Path] = None) -> Optional[dict]:
     """Read and return raw JSON data, or None if missing/corrupt."""
     fp = path or _COMPANION_FILE
     if not fp.exists():
@@ -40,13 +41,13 @@ def _read_data(path: Path | None = None) -> dict | None:
         return None
 
 
-def _write_data(data: dict, path: Path | None = None) -> None:
+def _write_data(data: dict, path: Optional[Path] = None) -> None:
     fp = path or _COMPANION_FILE
     fp.parent.mkdir(parents=True, exist_ok=True)
     fp.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def _migrate_if_needed(data: dict, default_seed: str, path: Path | None = None) -> dict:
+def _migrate_if_needed(data: dict, default_seed: str, path: Optional[Path] = None) -> dict:
     """Migrate old flat format to new multi-companion format in-place."""
     if "companions" in data:
         return data  # already new format
@@ -82,7 +83,7 @@ def _default_seed() -> str:
 # ---------------------------------------------------------------------------
 
 
-def load_stored_companion(path: Path | None = None) -> StoredCompanion | None:
+def load_stored_companion(path: Optional[Path] = None) -> Optional[StoredCompanion]:
     """Load the *active* stored companion from disk, or None if not hatched yet."""
     data = _read_data(path)
     if data is None:
@@ -103,7 +104,7 @@ def load_stored_companion(path: Path | None = None) -> StoredCompanion | None:
         return None
 
 
-def load_active_seed(path: Path | None = None) -> str | None:
+def load_active_seed(path: Optional[Path] = None) -> Optional[str]:
     """Load the seed of the active companion."""
     data = _read_data(path)
     if data is None:
@@ -120,7 +121,7 @@ def load_active_seed(path: Path | None = None) -> str | None:
 
 
 def save_stored_companion(
-    soul: CompanionSoul, path: Path | None = None
+    soul: CompanionSoul, path: Optional[Path] = None
 ) -> StoredCompanion:
     """Save the companion soul to disk (first companion / original hatch)."""
     fp = path or _COMPANION_FILE
@@ -153,7 +154,7 @@ def save_stored_companion(
 
 
 def save_new_companion(
-    soul: CompanionSoul, seed: str, path: Path | None = None
+    soul: CompanionSoul, seed: str, path: Optional[Path] = None
 ) -> StoredCompanion:
     """Append a new companion to the collection and make it active."""
     fp = path or _COMPANION_FILE
@@ -181,7 +182,7 @@ def save_new_companion(
     )
 
 
-def load_all_stored_companions(path: Path | None = None) -> list[StoredCompanionWithSeed]:
+def load_all_stored_companions(path: Optional[Path] = None) -> list[StoredCompanionWithSeed]:
     """Load all stored companions."""
     data = _read_data(path)
     if data is None:
@@ -201,7 +202,7 @@ def load_all_stored_companions(path: Path | None = None) -> list[StoredCompanion
         return []
 
 
-def load_active_index(path: Path | None = None) -> int:
+def load_active_index(path: Optional[Path] = None) -> int:
     """Return the active companion index (0-based)."""
     data = _read_data(path)
     if data is None:
@@ -210,7 +211,7 @@ def load_active_index(path: Path | None = None) -> int:
     return data.get("active", 0)
 
 
-def save_active_index(index: int, path: Path | None = None) -> bool:
+def save_active_index(index: int, path: Optional[Path] = None) -> bool:
     """Set the active companion index. Returns True on success."""
     fp = path or _COMPANION_FILE
     data = _read_data(fp)
@@ -225,7 +226,7 @@ def save_active_index(index: int, path: Path | None = None) -> bool:
     return True
 
 
-def load_companion_muted(path: Path | None = None) -> bool:
+def load_companion_muted(path: Optional[Path] = None) -> bool:
     """Check if companion reactions are muted."""
     data = _read_data(path)
     if data is None:
@@ -234,7 +235,7 @@ def load_companion_muted(path: Path | None = None) -> bool:
     return bool(data.get("muted", True))
 
 
-def save_companion_muted(muted: bool, path: Path | None = None) -> None:
+def save_companion_muted(muted: bool, path: Optional[Path] = None) -> None:
     """Toggle the muted flag in the companion file."""
     fp = path or _COMPANION_FILE
     data = _read_data(fp)
@@ -245,7 +246,7 @@ def save_companion_muted(muted: bool, path: Path | None = None) -> None:
     _write_data(data, fp)
 
 
-def load_active_mood(path: Path | None = None) -> CompanionMood:
+def load_active_mood(path: Optional[Path] = None) -> CompanionMood:
     """Load mood of the active companion. Returns neutral mood if missing."""
     data = _read_data(path)
     if data is None:
@@ -264,7 +265,7 @@ def load_active_mood(path: Path | None = None) -> CompanionMood:
         return CompanionMood()
 
 
-def save_active_mood(mood: CompanionMood, path: Path | None = None) -> None:
+def save_active_mood(mood: CompanionMood, path: Optional[Path] = None) -> None:
     """Save mood for the active companion."""
     fp = path or _COMPANION_FILE
     data = _read_data(fp)

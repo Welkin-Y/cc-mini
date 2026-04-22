@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from rich.console import Console
 from rich.table import Table
@@ -31,25 +31,26 @@ if TYPE_CHECKING:
 @dataclass
 class CommandContext:
     engine: Engine
-    session_store: SessionStore | None
+    session_store: Optional[SessionStore]
     compact_service: CompactService
     console: Console
     app_config: AppConfig
-    memory_dir: Path | None = None
-    permissions: PermissionChecker | None = None
+    memory_dir: Optional[Path] = None
+    permissions: Optional[PermissionChecker] = None
     run_dream: object = None
-    cost_tracker: CostTracker | None = None
+    cost_tracker: Optional[CostTracker] = None
     new_session_store: object = None
     reconfigure_mode: object = None
     plan_manager: object = None
-    pending_query: str | None = None  # set by commands that want a follow-up model query
+    on_model_change: object = None
+    pending_query: Optional[str] = None  # set by commands that want a follow-up model query
 
 
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
 
-def parse_command(text: str) -> tuple[str, str] | None:
+def parse_command(text: str) -> Optional[tuple[str, str]]:
     """If *text* starts with ``/``, return ``(command_name, args)``."""
     text = text.strip()
     if not text.startswith("/"):
@@ -204,7 +205,7 @@ def _cmd_resume(ctx: CommandContext, args: str) -> None:
     new_store = ctx.new_session_store  # type: ignore[call-arg]
     resumed_store = type(ctx.session_store)(  # type: ignore[arg-type]
         cwd=cwd,
-        model=ctx.app_config.model,
+        model=ctx.engine.get_model(),
         session_id=target_meta.session_id,
         mode=current_session_mode(),
     ) if ctx.session_store else None
@@ -285,7 +286,75 @@ def _cmd_cost(ctx: CommandContext, args: str) -> None:
     if ctx.cost_tracker is None:
         ctx.console.print("[dim]Cost tracking is not available.[/dim]")
         return
+    if ctx.app_config.provider == "lmstudio":
+        ctx.console.print("[dim]LM Studio backend: token usage is tracked, but local-model USD pricing is not estimated.[/dim]")
     ctx.console.print(ctx.cost_tracker.format_cost())
+
+
+def _pick_simple_model(console: Console, title: str, subtitle: str,
+                       options: list[str], current: str) -> Optional[str]:
+    from prompt_toolkit import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+
+    cursor = [0]
+    for i, name in enumerate(options):
+        if name == current:
+            cursor[0] = i
+            break
+
+    result: list[Optional[str]] = [None]
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _(e): cursor.__setitem__(0, (cursor[0] - 1) % len(options))
+
+    @kb.add("down")
+    def _(e): cursor.__setitem__(0, (cursor[0] + 1) % len(options))
+
+    @kb.add("enter")
+    def _(e):
+        result[0] = options[cursor[0]]
+        e.app.exit()
+
+    for i in range(min(len(options), 9)):
+        @kb.add(str(i + 1))
+        def _(e, idx=i):
+            cursor[0] = idx
+            result[0] = options[idx]
+            e.app.exit()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _(e): e.app.exit()
+
+    def _tokens():
+        t = [
+            ("bold ansibrightcyan", f"  {title}\n"),
+            ("ansigray", f"  {subtitle}\n\n"),
+        ]
+        for i, name in enumerate(options):
+            is_cur = i == cursor[0]
+            is_active = name == current
+            ptr = "❯" if is_cur else " "
+            sty = "ansibrightcyan" if is_cur else ""
+            chk = " ✔" if is_active else ""
+            t.append((sty, f"  {ptr} {i+1}. {name}{chk}\n"))
+        t.append(("", "\n"))
+        t.append(("ansigray", "  ↑↓ select · ↵ confirm · esc cancel"))
+        return t
+
+    app: Application = Application(
+        layout=Layout(Window(FormattedTextControl(_tokens))),
+        key_bindings=kb, full_screen=False)
+
+    try:
+        app.run()
+    except (EOFError, KeyboardInterrupt):
+        pass
+    return result[0]
 
 
 def _cmd_model(ctx: CommandContext, args: str) -> None:
@@ -293,19 +362,72 @@ def _cmd_model(ctx: CommandContext, args: str) -> None:
 
     provider = ctx.app_config.provider
 
-    if args:
-        ctx.engine.set_model(args.strip())
+    def _apply_model_selection(model_name: str, effort: Optional[str] = None) -> None:
+        ctx.engine.set_model(model_name)
         actual = ctx.engine.get_model()
+        ctx.compact_service.set_model(actual)
+        if ctx.session_store is not None:
+            ctx.session_store.model = actual
+        if callable(ctx.on_model_change):
+            ctx.on_model_change(actual)
+        suffix = ""
+        if effort is not None:
+            suffix = f", effort={effort}"
         ctx.console.print(
             f"[green]✓[/green] Set model to [bold]{actual}[/bold]  "
-            f"(max_tokens={default_max_tokens_for_model(actual, provider=provider)})")
+            f"(max_tokens={default_max_tokens_for_model(actual, provider=provider)}{suffix})")
+
+    if args:
+        _apply_model_selection(args.strip())
+        return
+
+    if provider == "lmstudio":
+        current = ctx.engine.get_model()
+        available_models: list[str] = []
+        try:
+            available_models = ctx.engine.list_available_models()
+        except Exception:
+            available_models = []
+        if not available_models:
+            available_models = list(ctx.app_config.model_list)
+        if current and current not in available_models:
+            available_models.insert(0, current)
+        available_models = list(dict.fromkeys(available_models))
+        if not available_models:
+            ctx.console.print(
+                f"[dim]Current model: {current}[/dim]\n"
+                "[dim]No LM Studio models were discovered. Start a model in LM Studio or configure "
+                "`models = [\"...\"]` / `CC_MINI_MODELS`.[/dim]"
+            )
+            return
+        result = _pick_simple_model(
+            ctx.console,
+            "Select LM Studio model",
+            "Loaded models come from LM Studio. If discovery is unavailable, configured `models` entries are shown instead.",
+            available_models,
+            current,
+        )
+        if result is None:
+            ctx.console.print(f"[dim]Kept model as {current}[/dim]")
+            return
+
+        _apply_model_selection(result)
         return
 
     if provider != "anthropic":
         current = ctx.engine.get_model()
+        provider_hint = provider
+        if ctx.app_config.model_list:
+            configured = ", ".join(ctx.app_config.model_list)
+            ctx.console.print(
+                f"[dim]Current model: {current}[/dim]\n"
+                f"[dim]Configured models: {configured}[/dim]\n"
+                f"[dim]Use /model <name> to switch models for the {provider_hint} provider.[/dim]"
+            )
+            return
         ctx.console.print(
             f"[dim]Current model: {current}[/dim]\n"
-            f"[dim]Use /model <name> to switch models for the {provider} provider.[/dim]"
+            f"[dim]Use /model <name> to switch models for the {provider_hint} provider.[/dim]"
         )
         return
 
@@ -346,7 +468,7 @@ def _cmd_model(ctx: CommandContext, args: str) -> None:
             break
 
     effort_idx = [2]
-    result: list[str | None] = [None]
+    result: list[Optional[str]] = [None]
     max_label = max(len(l) for _, l, _ in options)
 
     kb = KeyBindings()
@@ -413,13 +535,8 @@ def _cmd_model(ctx: CommandContext, args: str) -> None:
         ctx.console.print(f"[dim]Kept model as {current}[/dim]")
         return
 
-    ctx.engine.set_model(result[0])
-    actual = ctx.engine.get_model()
     eff = effort_levels[effort_idx[0]]
-    ctx.console.print(
-        f"[green]✓[/green] Set model to [bold]{actual}[/bold]  "
-        f"(max_tokens={default_max_tokens_for_model(actual, provider=provider)}, effort={eff})"
-    )
+    _apply_model_selection(result[0], effort=eff)
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +546,7 @@ def _cmd_model(ctx: CommandContext, args: str) -> None:
 def _cmd_plan(ctx: CommandContext, args: str) -> None:
     """Enter plan mode or show current plan."""
     from features.plan import PlanModeManager
-    pm: PlanModeManager | None = ctx.plan_manager  # type: ignore[assignment]
+    pm: Optional[PlanModeManager] = ctx.plan_manager  # type: ignore[assignment]
     if pm is None:
         ctx.console.print("[red]Plan mode not available.[/red]")
         return

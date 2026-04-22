@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import re
+from typing import Optional
 import subprocess
 from pathlib import Path
-import glob as glob_module
+import re
 from core.tool import Tool, ToolResult
 
 
@@ -49,14 +49,14 @@ class GrepTool(Tool):
         "required": ["pattern"],
     }
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         pattern = kwargs.get("pattern", "")
         return f"Searching for {pattern}" if pattern else None
 
     def is_read_only(self) -> bool:
         return True
 
-    def execute(self, pattern: str, path: str = ".", glob: str | None = None,
+    def execute(self, pattern: str, path: str = ".", glob: Optional[str] = None,
                 output_mode: str = "files_with_matches", **kwargs) -> ToolResult:
         cmd = ["rg", "--no-heading"]
         if kwargs.get("-i"):
@@ -115,7 +115,7 @@ class GrepTool(Tool):
         except subprocess.TimeoutExpired:
             return ToolResult(content="Error: Search timed out.", is_error=True)
 
-    def _python_grep(self, pattern: str, path: str, glob_filter: str | None,
+    def _python_grep(self, pattern: str, path: str, glob_filter: Optional[str],
                      case_insensitive: bool, output_mode: str = "files_with_matches") -> ToolResult:
         base = Path(path)
         flags = re.IGNORECASE if case_insensitive else 0
@@ -125,7 +125,7 @@ class GrepTool(Tool):
             files = [base]
         else:
             pat = glob_filter or "**/*"
-            files = [base / p for p in glob_module.glob(pat, root_dir=str(base), recursive=True)]
+            files = list(base.glob(pat))
 
         matched = []
         for f in files:

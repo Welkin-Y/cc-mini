@@ -17,6 +17,7 @@ Corresponds to:
 
 from __future__ import annotations
 
+from typing import Optional
 import os
 import shlex
 from pathlib import Path
@@ -27,7 +28,7 @@ from .config import SandboxConfig
 def build_bwrap_args(
     command: str,
     config: SandboxConfig,
-    cwd: str | None = None,
+    cwd: Optional[str] = None,
 ) -> list[str]:
     """Build complete bwrap argument list from config.
 
@@ -89,7 +90,7 @@ def build_bwrap_args(
 def wrap_command(
     command: str,
     config: SandboxConfig,
-    cwd: str | None = None,
+    cwd: Optional[str] = None,
 ) -> str:
     """Wrap a command as a bwrap sandbox command string.
 

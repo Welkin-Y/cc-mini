@@ -17,6 +17,15 @@ export OPENAI_API_KEY=sk-...
 export OPENAI_BASE_URL=https://your-openai-gateway.example.com
 ```
 
+### LM Studio
+
+```bash
+export CC_MINI_PROVIDER=lmstudio
+export CC_MINI_MODEL=local-model
+export LMSTUDIO_BASE_URL=http://localhost:1234/v1
+export LMSTUDIO_API_KEY=lm-studio
+```
+
 ### Environment Variables
 
 | Variable | Description |
@@ -24,9 +33,7 @@ export OPENAI_BASE_URL=https://your-openai-gateway.example.com
 | `CC_MINI_MODEL` | Model name (e.g. `claude-sonnet-4-5`) |
 | `CC_MINI_MAX_TOKENS` | Max output tokens |
 | `CC_MINI_EFFORT` | Reasoning effort (`low`, `medium`, `high`) |
-| `CC_MINI_PROVIDER` | `anthropic` or `openai` |
-| `CC_MINI_BUDDY_MODEL` | Model for companion pet reactions |
-| `CC_MINI_BUDDY_SEED` | Override buddy seed for specific companion |
+| `CC_MINI_PROVIDER` | `anthropic`, `openai`, or `lmstudio` |
 
 ## CLI Flags
 
@@ -40,6 +47,15 @@ cc-mini \
   --auto-approve \
   --coordinator \
   --resume 1
+```
+
+LM Studio example:
+
+```bash
+cc-mini \
+  --provider lmstudio \
+  --model local-model \
+  --base-url http://localhost:1234/v1
 ```
 
 ## TOML Config Files
@@ -73,7 +89,6 @@ base_url = "https://your-openai-gateway.example.com/v1"
 model = "gpt-4.1-mini"
 max_tokens = 8192
 effort = "medium"
-buddy_model = "gpt-4.1-mini"
 ```
 
 ### OpenRouter (low-cost testing)
@@ -87,4 +102,15 @@ base_url = "https://openrouter.ai/api/v1"
 model = "qwen/qwen3.6-plus-preview:free"
 ```
 
-When `provider = "openai"`, `OPENAI_API_KEY` / `OPENAI_BASE_URL` are used. When `provider = "anthropic"`, `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` are used.
+### LM Studio example
+
+```toml
+provider = "lmstudio"
+
+[lmstudio]
+base_url = "http://localhost:1234/v1"
+api_key = "lm-studio"
+model = "local-model"
+```
+
+When `provider = "openai"`, `OPENAI_API_KEY` / `OPENAI_BASE_URL` are used. When `provider = "anthropic"`, `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` are used. When `provider = "lmstudio"`, `LMSTUDIO_API_KEY` / `LMSTUDIO_BASE_URL` are used.

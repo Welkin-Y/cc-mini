@@ -6,7 +6,7 @@ Draw costs 5 tickets; duplicates refund tickets.
 from __future__ import annotations
 
 import random
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .types import (
     Badge,
@@ -99,7 +99,7 @@ def _adjusted_draw_probs(lck: int) -> dict[str, float]:
     return probs
 
 
-def draw_badge(session: GameSession, free: bool = False) -> tuple[Badge | None, bool, int]:
+def draw_badge(session: GameSession, free: bool = False) -> tuple[Optional[Badge], bool, int]:
     """Perform a gacha draw.
 
     Returns (badge, is_new, refund_tickets).
@@ -144,7 +144,7 @@ def badge_progress(session: GameSession) -> tuple[int, int]:
     return len(session.badges), len(ALL_BADGES)
 
 
-def draw_badge_multi(session: GameSession, count: int = 10) -> list[tuple[Badge | None, bool, int]]:
+def draw_badge_multi(session: GameSession, count: int = 10) -> list[tuple[Optional[Badge], bool, int]]:
     """10-pull gacha: draw `count` badges with guaranteed purple+ on last draw.
 
     Returns list of (badge, is_new, refund). Empty list if insufficient tickets.
@@ -153,7 +153,7 @@ def draw_badge_multi(session: GameSession, count: int = 10) -> list[tuple[Badge 
     if session.tickets < cost:
         return []
 
-    results: list[tuple[Badge | None, bool, int]] = []
+    results: list[tuple[Optional[Badge], bool, int]] = []
     has_rare = False
 
     for i in range(count):

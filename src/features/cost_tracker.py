@@ -6,6 +6,7 @@ Ported from claude-code-main's ``src/utils/modelCost.ts`` and
 
 from __future__ import annotations
 
+from typing import Optional
 import time
 from dataclasses import dataclass, field
 
@@ -46,7 +47,7 @@ _MODEL_PRICING: list[tuple[str, _PricingTier]] = [
 _DEFAULT_TIER = _TIER_3_15  # fallback for Claude-family / unknown legacy names
 
 
-def _tier_for_model(model: str, usage: dict | None = None) -> _PricingTier | None:
+def _tier_for_model(model: str, usage: Optional[dict] = None) -> Optional[_PricingTier]:
     model_lower = model.lower()
     
     if "claude-opus-4-6" in model_lower:
@@ -195,7 +196,7 @@ class CostTracker:
         lines: list[str] = []
         lines.append(f"Total cost:            ${self._total_cost_usd:.2f}")
         if unknown_pricing:
-            lines.append("Pricing note:          Costs may be inaccurate due to usage of unknown models")
+            lines.append("Pricing note:          Costs may be incomplete for unknown or local OpenAI-compatible models")
         lines.append(f"Total duration (API):  {_fmt_duration(self._total_api_duration_s)}")
         lines.append(f"Total duration (wall): {_fmt_duration(wall_s)}")
         la = self._lines_added

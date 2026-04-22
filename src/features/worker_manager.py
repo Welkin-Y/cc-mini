@@ -5,7 +5,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from queue import Empty, Queue
-from typing import Callable
+from typing import Callable, Optional
 from xml.sax.saxutils import escape
 
 from core.engine import AbortedError
@@ -27,7 +27,7 @@ class WorkerTask:
     summary: str = ""
     result: str = ""
     usage: WorkerUsage = field(default_factory=WorkerUsage)
-    thread: threading.Thread | None = None
+    thread: Optional[threading.Thread] = None
     # Live progress tracking
     tool_use_count: int = 0
     current_activity: str = ""

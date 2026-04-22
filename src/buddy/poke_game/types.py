@@ -5,6 +5,7 @@ Game stats are independent of buddy's original DEBUGGING/PATIENCE/CHAOS/WISDOM/S
 """
 from __future__ import annotations
 
+from typing import Optional
 from dataclasses import dataclass, field
 
 
@@ -165,7 +166,7 @@ class GameSession:
     # Game RPG stats
     stats: dict[str, int] = field(default_factory=lambda: dict(INITIAL_STATS))
     # Current state
-    location: Location | None = None
+    location: Optional[Location] = None
     inventory: list[Item] = field(default_factory=list)
     skills: list[Skill] = field(default_factory=list)
     badges: list[Badge] = field(default_factory=list)

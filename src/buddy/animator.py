@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from .sprites import render_face, render_sprite, sprite_frame_count
 from .types import (
@@ -52,16 +52,16 @@ class CompanionAnimator:
     def __init__(self, companion: Companion):
         self.companion = companion
         self._tick = 0
-        self._timer: threading.Timer | None = None
+        self._timer: Optional[threading.Timer] = None
         self._running = False
-        self._invalidate: Callable[[], None] | None = None
+        self._invalidate: Optional[Callable[[], None]] = None
 
         # Speech bubble state
-        self._reaction: str | None = None
+        self._reaction: Optional[str] = None
         self._reaction_tick: int = 0
 
         # Pet state
-        self._pet_tick: int | None = None
+        self._pet_tick: Optional[int] = None
 
         # Bones for rendering
         self._bones = CompanionBones(

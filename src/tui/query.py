@@ -1,6 +1,7 @@
 """Run a single query turn with TUI feedback (spinner, markdown streaming)."""
 from __future__ import annotations
 
+from typing import Optional, Union
 import sys
 
 from rich.console import Console
@@ -18,8 +19,8 @@ from tui.rendering import (
 console = Console()
 
 
-def run_query(engine: Engine, user_input: str | list, print_mode: bool,
-              permissions: PermissionChecker | None = None,
+def run_query(engine: Engine, user_input: Union[str, list], print_mode: bool,
+              permissions: Optional[PermissionChecker] = None,
               quiet: bool = False) -> None:
     """Run a single turn. Ctrl+C or Esc cancels the active turn.
 

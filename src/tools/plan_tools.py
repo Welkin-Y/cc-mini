@@ -7,7 +7,7 @@ Corresponds to:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from core.tool import Tool, ToolResult
 
@@ -77,7 +77,7 @@ class EnterPlanModeTool(Tool):
     def is_read_only(self) -> bool:
         return True
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         return "Entering plan mode\u2026"
 
     def execute(self, **kwargs) -> ToolResult:
@@ -114,7 +114,7 @@ class ExitPlanModeTool(Tool):
     def __init__(self, plan_manager: PlanModeManager) -> None:
         self._plan_manager = plan_manager
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         return "Exiting plan mode\u2026"
 
     def execute(self, **kwargs) -> ToolResult:

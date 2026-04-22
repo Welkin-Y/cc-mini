@@ -5,6 +5,7 @@ directly below the input content (not at the screen bottom).
 """
 from __future__ import annotations
 
+from typing import Optional
 from prompt_toolkit.application import Application as PTApp
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
@@ -23,17 +24,7 @@ from rich.console import Console
 class SlashCommandCompleter(Completer):
     """Autocomplete for slash commands. Triggers when input starts with "/"."""
 
-    # Extra commands not in _COMMAND_TABLE (handled separately in the REPL)
     _EXTRA_COMMANDS: list[tuple[str, str]] = [
-        ('buddy',            'Companion pet — hatch, pet, stats, mute/unmute, ia'),
-        ('buddy pet',        'Pet your companion'),
-        ('buddy stats',      'Show companion stats'),
-        ('buddy new',        'Hatch a new random companion'),
-        ('buddy list',       'View all companions'),
-        ('buddy select',     'Switch active companion (e.g. /buddy select 2)'),
-        ('buddy mute',       'Mute companion reactions'),
-        ('buddy unmute',     'Unmute companion reactions'),
-        ('buddy ia',         'Idle Adventure — roguelike world exploration game'),
         ('exit',    'Exit the REPL'),
     ]
 
@@ -86,11 +77,11 @@ slash_completer = SlashCommandCompleter()
 
 def bordered_prompt(
     con: Console,
-    history: FileHistory | None = None,
-    completer: Completer | None = None,
+    history: Optional[FileHistory] = None,
+    completer: Optional[Completer] = None,
     animator_toolbar=None,
-    refresh_interval: float | None = None,
-    terminal_mode_ref: list | None = None,
+    refresh_interval: Optional[float] = None,
+    terminal_mode_ref: Optional[list] = None,
 ) -> str:
     """Prompt with bordered input box that adapts to content height.
 

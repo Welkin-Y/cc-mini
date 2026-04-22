@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import Callable, TYPE_CHECKING
+from typing import Callable, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from core.engine import Engine
@@ -64,19 +64,19 @@ class PlanModeManager:
     """
 
     def __init__(self) -> None:
-        self._engine: Engine | None = None
-        self._permissions: PermissionChecker | None = None
-        self._build_plan_worker_engine: Callable[[], object] | None = None
-        self._plan_worker_manager: object | None = None
+        self._engine: Optional[Engine] = None
+        self._permissions: Optional[PermissionChecker] = None
+        self._build_plan_worker_engine: Optional[Callable[[], object]] = None
+        self._plan_worker_manager: Optional[object] = None
         self._active: bool = False
-        self._plan_file: Path | None = None
-        self._saved_tools: list[Tool] | None = None
-        self._saved_prompt: str | None = None
+        self._plan_file: Optional[Path] = None
+        self._saved_tools: Optional[list[Tool]] = None
+        self._saved_prompt: Optional[str] = None
 
     def bind_engine(
         self,
         engine: Engine,
-        build_plan_worker_engine: Callable[[], object] | None = None,
+        build_plan_worker_engine: Optional[Callable[[], object]] = None,
     ) -> None:
         self._engine = engine
         self._build_plan_worker_engine = build_plan_worker_engine
@@ -89,15 +89,15 @@ class PlanModeManager:
         return self._active
 
     @property
-    def plan_file_path(self) -> str | None:
+    def plan_file_path(self) -> Optional[str]:
         return str(self._plan_file) if self._plan_file else None
 
     @property
-    def worker_manager(self) -> object | None:
+    def worker_manager(self) -> Optional[object]:
         """Plan-mode WorkerManager, if active and agents are enabled."""
         return self._plan_worker_manager if self._active else None
 
-    def get_plan_content(self) -> str | None:
+    def get_plan_content(self) -> Optional[str]:
         if self._plan_file and self._plan_file.exists():
             try:
                 return self._plan_file.read_text(encoding="utf-8")
@@ -177,7 +177,7 @@ class PlanModeManager:
         # Matches TS EnterPlanModeTool which returns a brief confirmation.
         return f"Entered plan mode. Plan file: {self._plan_file}"
 
-    def exit(self) -> tuple[str, str | None]:
+    def exit(self) -> tuple[str, Optional[str]]:
         """Exit plan mode: restore tools and prompt, return (message, plan_content)."""
         assert self._engine is not None, "PlanModeManager not bound to engine"
 

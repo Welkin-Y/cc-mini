@@ -1,9 +1,50 @@
+from unittest.mock import patch
+
 from core.llm import (
+    LLMClient,
+    _LMSTUDIO_PROVIDER,
     _to_openai_messages,
     _tool_schema_to_openai,
-    default_companion_model,
+    default_max_tokens_for_provider,
+    default_model_for_provider,
     supports_reasoning_effort,
+    validate_provider,
 )
+
+
+def test_lmstudio_client_initialization():
+    with patch("core.llm.OpenAI") as mock_openai:
+        client = LLMClient(provider=_LMSTUDIO_PROVIDER)
+        assert client.provider == _LMSTUDIO_PROVIDER
+        mock_openai.assert_called_once_with(
+            api_key="lm-studio",
+            base_url="http://localhost:1234/v1",
+        )
+
+
+def test_lmstudio_client_custom_config():
+    with patch("core.llm.OpenAI") as mock_openai:
+        LLMClient(
+            provider=_LMSTUDIO_PROVIDER,
+            api_key="custom-key",
+            base_url="http://127.0.0.1:5678/v1",
+        )
+        mock_openai.assert_called_once_with(
+            api_key="custom-key",
+            base_url="http://127.0.0.1:5678/v1",
+        )
+
+
+def test_lmstudio_list_models():
+    with patch("core.llm.OpenAI") as mock_openai:
+        models_resource = mock_openai.return_value.models
+        models_resource.list.return_value = type(
+            "Resp",
+            (),
+            {"data": [type("Model", (), {"id": "qwen-local"})(), type("Model", (), {"id": "llama-local"})()]},
+        )()
+        client = LLMClient(provider=_LMSTUDIO_PROVIDER)
+        assert client.list_models() == ["qwen-local", "llama-local"]
 
 
 def test_to_openai_messages_maps_tool_roundtrip():
@@ -82,7 +123,10 @@ def test_openai_reasoning_effort_support():
     assert supports_reasoning_effort("openai", "gpt-5") is True
     assert supports_reasoning_effort("openai", "gpt-4.1-mini") is False
     assert supports_reasoning_effort("anthropic", "claude-sonnet-4") is False
+    assert supports_reasoning_effort("lmstudio", "local-model") is False
 
 
-def test_default_companion_model_uses_main_model_for_openai():
-    assert default_companion_model("openai", "gpt-4.1-mini") == "gpt-4.1-mini"
+def test_lmstudio_defaults():
+    assert validate_provider("lmstudio") == "lmstudio"
+    assert default_model_for_provider("lmstudio") == "local-model"
+    assert default_max_tokens_for_provider("lmstudio") == 8192

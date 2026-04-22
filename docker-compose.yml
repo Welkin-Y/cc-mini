@@ -1,0 +1,27 @@
+services:
+  cc-mini:
+    image: cc-mini:py39
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    init: true
+    volumes:
+      - .:/workspace
+      - cc-mini-data:/root/.config/cc-mini
+    environment:
+      CC_MINI_PROVIDER: ${CC_MINI_PROVIDER:-lmstudio}
+      CC_MINI_MODEL: ${CC_MINI_MODEL:-local-model}
+      LMSTUDIO_BASE_URL: ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      LMSTUDIO_API_KEY: ${LMSTUDIO_API_KEY:-lm-studio}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  cc-mini-data:

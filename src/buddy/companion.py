@@ -14,7 +14,7 @@ import math
 import socket
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Callable, Sequence
+from typing import Callable, Sequence, Optional
 
 from .types import (
     ALL_SPECIES,
@@ -173,7 +173,7 @@ def _companion_from_stored(
     stored_personality: str,
     stored_hatched_at: int,
     seed: str,
-    mood: CompanionMood | None = None,
+    mood: Optional[CompanionMood] = None,
 ) -> Companion:
     """Build a full Companion by regenerating bones from seed."""
     bones = roll_with_seed(seed).bones
@@ -191,7 +191,7 @@ def _companion_from_stored(
     )
 
 
-def get_companion() -> Companion | None:
+def get_companion() -> Optional[Companion]:
     """Get the full active companion if one has been hatched, or None."""
     from .storage import load_stored_companion, load_active_seed, load_active_mood
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 import json
 
 from core.tool import Tool, ToolResult
@@ -28,7 +29,7 @@ class AgentTool(Tool):
         "required": ["description", "prompt"],
     }
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         desc = kwargs.get("description", "")
         return f"Running agent: {desc}" if desc else "Running agent…"
 

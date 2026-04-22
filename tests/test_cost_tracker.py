@@ -187,3 +187,14 @@ def test_format_cost_shows_cache():
     output = tracker.format_cost()
     assert "cache read" in output
     assert "cache write" in output
+
+
+def test_format_cost_warns_for_local_models():
+    tracker = CostTracker()
+    tracker.add_usage("local-model", {
+        "input_tokens": 1000,
+        "output_tokens": 500,
+    })
+    output = tracker.format_cost()
+    assert "Pricing note:" in output
+    assert "local OpenAI-compatible models" in output

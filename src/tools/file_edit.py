@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from pathlib import Path
 from core.tool import Tool, ToolResult
 
@@ -42,7 +43,7 @@ class FileEditTool(Tool):
     def mark_file_read(cls, file_path: str) -> None:
         cls._read_files.add(file_path)
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         file_path = kwargs.get("file_path", "")
         return f"Editing {file_path}" if file_path else None
 

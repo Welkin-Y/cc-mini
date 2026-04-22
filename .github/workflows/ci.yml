@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker compose build
+
+      - name: Run tests in Docker
+        run: docker compose run --rm -T cc-mini pytest tests/ -v -k "not integration"

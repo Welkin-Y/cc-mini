@@ -8,6 +8,7 @@ Four screen states:
 """
 from __future__ import annotations
 
+from typing import Optional
 from rich import box
 from rich.align import Align
 from rich.layout import Layout
@@ -337,7 +338,7 @@ MULTI_COST = TICKET_COST * 10
 def render_gacha_screen(
     session: GameSession,
     gacha_cursor: int = 0,
-    last_draw: list | None = None,     # list of (badge, is_new, refund)
+    last_draw: Optional[list] = None,     # list of (badge, is_new, refund)
     animating: bool = False,
 ) -> Panel:
     """Render the gacha draw screen."""

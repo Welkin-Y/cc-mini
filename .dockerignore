@@ -1,0 +1,9 @@
+.git
+.github
+.codex
+.pytest_cache
+__pycache__
+.venv
+*.pyc
+*.pyo
+*.pyd

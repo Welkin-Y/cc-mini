@@ -1,3 +1,4 @@
+from typing import Optional
 """System prompt construction — section-based architecture matching prompts.ts."""
 
 import os
@@ -200,22 +201,6 @@ def _get_claude_md_section(cwd: str) -> str:
     return ""
 
 
-def _get_companion_intro() -> str:
-    try:
-        from buddy.companion import get_companion
-        from buddy.storage import load_companion_muted
-        from buddy.prompt import companion_intro_text
-
-        if load_companion_muted():
-            return ""
-        companion = get_companion()
-        if companion is None:
-            return ""
-        return companion_intro_text(companion.name, companion.species)
-    except Exception:
-        return ""
-
-
 def get_plan_mode_section(plan_file_path: str) -> str:
     """System prompt section injected when plan mode is active.
 
@@ -285,7 +270,7 @@ At the very end of your turn, once you are happy with your final plan file, call
 # Public API
 # ---------------------------------------------------------------------------
 
-def build_system_prompt(cwd: str | None = None, model: str = "", memory_dir: Path | None = None) -> str:
+def build_system_prompt(cwd: Optional[str] = None, model: str = "", memory_dir: Optional[Path] = None) -> str:
     """Assemble the full system prompt from section functions.
 
     Matches prompts.ts getSystemPrompt() architecture: static sections first,
@@ -312,10 +297,5 @@ def build_system_prompt(cwd: str | None = None, model: str = "", memory_dir: Pat
     if memory_dir is not None:
         from features.memory import build_memory_system_section
         sections.append(build_memory_system_section(memory_dir))
-
-    # Companion intro
-    companion_text = _get_companion_intro()
-    if companion_text:
-        sections.append(companion_text)
 
     return "\n\n".join(s for s in sections if s)

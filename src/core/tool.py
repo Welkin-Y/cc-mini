@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -26,7 +27,7 @@ class Tool(ABC):
     @abstractmethod
     def execute(self, **kwargs) -> ToolResult: ...
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         """Return a human-readable description of what the tool is doing, shown in the spinner."""
         return None
 

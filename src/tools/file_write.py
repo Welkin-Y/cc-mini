@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from pathlib import Path
 from core.tool import Tool, ToolResult
 from .file_edit import FileEditTool
@@ -27,7 +28,7 @@ class FileWriteTool(Tool):
         "required": ["file_path", "content"],
     }
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         file_path = kwargs.get("file_path", "")
         return f"Writing {file_path}" if file_path else None
 

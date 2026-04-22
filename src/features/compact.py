@@ -5,7 +5,7 @@ Modelled after claude-code's ``src/services/compact/compact.ts``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 from core.llm import LLMClient
 
 # ---------------------------------------------------------------------------
@@ -115,8 +115,8 @@ def estimate_tokens(messages: list[dict]) -> int:
     return total_chars // CHARS_PER_TOKEN
 
 
-def should_compact(messages: list[dict], model: str | None = None,
-                   last_input_tokens: int | None = None) -> bool:
+def should_compact(messages: list[dict], model: Optional[str] = None,
+                   last_input_tokens: Optional[int] = None) -> bool:
     """Return True when the conversation should be auto-compacted.
 
     If *last_input_tokens* (from the API response) is available, use it
@@ -178,10 +178,13 @@ def _split_recent(messages: list[dict]) -> tuple[list[dict], list[dict]]:
 class CompactService:
     """Compress conversation context via API summarisation."""
 
-    def __init__(self, client: LLMClient, model: str, effort: str | None = None):
+    def __init__(self, client: LLMClient, model: str, effort: Optional[str] = None):
         self._client = client
         self._model = model
         self._effort = effort
+
+    def set_model(self, model: str) -> None:
+        self._model = model
 
     def compact(
         self,

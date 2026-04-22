@@ -8,7 +8,7 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Optional
 
 from .types import GameSession, Monster, Item, Skill
 
@@ -64,9 +64,9 @@ class BattleResult:
     hp_lost: int  # how much HP the player lost
     log: list[str] = field(default_factory=list)
     # Rewards (only if won)
-    reward_item: Item | None = None
-    reward_skill: Skill | None = None
-    reward_stat: tuple[str, int] | None = None  # (stat_name, amount)
+    reward_item: Optional[Item] = None
+    reward_skill: Optional[Skill] = None
+    reward_stat: Optional[tuple[str, int]] = None  # (stat_name, amount)
     reward_tickets: int = 0
 
 

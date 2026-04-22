@@ -1,6 +1,7 @@
 """Streaming markdown renderer and spinner manager for the TUI."""
 from __future__ import annotations
 
+from typing import Optional
 import re
 
 from rich.console import Console
@@ -26,7 +27,7 @@ class StreamingMarkdown:
         self._console = console
         self._buf = ""
         self._stable_len = 0  # how much of _buf has been printed as stable
-        self._live: Live | None = None
+        self._live: Optional[Live] = None
 
     def feed(self, chunk: str) -> None:
         """Add a streamed text chunk and update the display."""
@@ -85,7 +86,7 @@ class SpinnerManager:
 
     def __init__(self, console: Console):
         self._console = console
-        self._live: Live | None = None
+        self._live: Optional[Live] = None
         self._spinner_text = "Thinking…"
 
     def start(self, text: str = "Thinking…"):

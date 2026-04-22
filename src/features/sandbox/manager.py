@@ -6,6 +6,7 @@ Coordinates config/checker/wrapper/command_matcher sub-modules.
 
 from __future__ import annotations
 
+from typing import Optional
 from pathlib import Path
 
 from .config import SandboxConfig, load_sandbox_config, save_sandbox_config
@@ -20,9 +21,9 @@ class SandboxManager:
     Lifecycle: created once in main.py, lives for the entire REPL session.
     """
 
-    def __init__(self, config: SandboxConfig | None = None):
+    def __init__(self, config: Optional[SandboxConfig] = None):
         self._config = config or SandboxConfig()
-        self._dep_check: DependencyCheck | None = None
+        self._dep_check: Optional[DependencyCheck] = None
 
     @property
     def config(self) -> SandboxConfig:
@@ -76,14 +77,14 @@ class SandboxManager:
 
     # === Command wrapping ===
 
-    def wrap(self, command: str, cwd: str | None = None) -> str:
+    def wrap(self, command: str, cwd: Optional[str] = None) -> str:
         """Wrap command for sandbox execution.
 
         Corresponds to wrapWithSandbox (sandbox-adapter.ts:704-725).
         """
         return wrap_command(command, self._config, cwd)
 
-    def build_args(self, command: str, cwd: str | None = None) -> list[str]:
+    def build_args(self, command: str, cwd: Optional[str] = None) -> list[str]:
         """Build bwrap argument list (for shell=False execution)."""
         return build_bwrap_args(command, self._config, cwd)
 
@@ -119,7 +120,7 @@ class SandboxManager:
             self._config.excluded_commands.append(pattern)
         return f"Added excluded pattern: {pattern}"
 
-    def save(self, path: Path | None = None) -> None:
+    def save(self, path: Optional[Path] = None) -> None:
         """Persist current config to TOML file."""
         target = path or (Path.cwd() / ".cc-mini.toml")
         save_sandbox_config(self._config, target)

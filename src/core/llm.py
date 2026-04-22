@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 import anthropic
 import httpx
 
 
-_OPENAI_IMPORT_ERROR: Exception | None = None
+_OPENAI_IMPORT_ERROR: Optional[Exception] = None
 
 try:
     from openai import OpenAI
@@ -23,7 +23,8 @@ ProviderName = str
 
 _ANTHROPIC_PROVIDER = "anthropic"
 _OPENAI_PROVIDER = "openai"
-_VALID_PROVIDERS = {_ANTHROPIC_PROVIDER, _OPENAI_PROVIDER}
+_LMSTUDIO_PROVIDER = "lmstudio"
+_VALID_PROVIDERS = {_ANTHROPIC_PROVIDER, _OPENAI_PROVIDER, _LMSTUDIO_PROVIDER}
 
 MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
 
@@ -49,7 +50,7 @@ _MODEL_MAX_OUTPUT_UPPER: dict[str, int] = {
     "claude-3-5-haiku": 8192,
 }
 
-def get_max_output_tokens_upper(model: str) -> int | None:
+def get_max_output_tokens_upper(model: str) -> Optional[int]:
     """Return the upper limit of output tokens for a model, if known."""
     for prefix, limit in _MODEL_MAX_OUTPUT_UPPER.items():
         if model.startswith(prefix):
@@ -68,10 +69,10 @@ class LLMUsage:
 @dataclass
 class LLMMessage:
     content: list[dict[str, Any]]
-    usage: LLMUsage | None = None
+    usage: Optional[LLMUsage] = None
 
 
-def validate_provider(provider: str | None) -> ProviderName:
+def validate_provider(provider: Optional[str]) -> ProviderName:
     normalized = (provider or _ANTHROPIC_PROVIDER).strip().lower()
     if normalized not in _VALID_PROVIDERS:
         raise ValueError(f"Unsupported provider: {provider}")
@@ -82,19 +83,14 @@ def default_model_for_provider(provider: str) -> str:
     provider = validate_provider(provider)
     if provider == _OPENAI_PROVIDER:
         return "gpt-5.1-codex"
+    if provider == _LMSTUDIO_PROVIDER:
+        return "local-model"
     return "claude-sonnet-4-6"
-
-
-def default_companion_model(provider: str, model: str) -> str:
-    provider = validate_provider(provider)
-    if provider == _OPENAI_PROVIDER:
-        return model
-    return "claude-haiku-4-5-20251001"
 
 
 def default_max_tokens_for_provider(provider: str) -> int:
     provider = validate_provider(provider)
-    if provider == _OPENAI_PROVIDER:
+    if provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
         return 8192
     return 32000
 
@@ -111,15 +107,20 @@ class LLMClient:
     def __init__(
         self,
         provider: str = _ANTHROPIC_PROVIDER,
-        api_key: str | None = None,
-        base_url: str | None = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ):
         self.provider = validate_provider(provider)
+        if self.provider == _LMSTUDIO_PROVIDER:
+            if not base_url:
+                base_url = "http://localhost:1234/v1"
+            if not api_key:
+                api_key = "lm-studio"
         self._api_key = api_key
         self._base_url = base_url
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             if OpenAI is None:
-                message = "OpenAI support requires the `openai` package to be installed."
+                message = "OpenAI/LM Studio support requires the `openai` package to be installed."
                 if _OPENAI_IMPORT_ERROR is not None:
                     message += f" Import failed: {_OPENAI_IMPORT_ERROR}"
                 raise ValueError(message)
@@ -137,11 +138,11 @@ class LLMClient:
         model: str,
         max_tokens: int,
         messages: list[dict[str, Any]],
-        system: str | None = None,
-        tools: list[dict[str, Any]] | None = None,
-        effort: str | None = None,
+        system: Optional[str] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        effort: Optional[str] = None,
     ) -> LLMMessage:
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return self._openai_create_message(
                 model=model,
                 max_tokens=max_tokens,
@@ -158,17 +159,29 @@ class LLMClient:
             tools=tools,
         )
 
+    def list_models(self) -> list[str]:
+        if self.provider not in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
+            return []
+        response = self._client.models.list()
+        data = getattr(response, "data", response)
+        models: list[str] = []
+        for item in data:
+            model_id = getattr(item, "id", None)
+            if model_id:
+                models.append(str(model_id))
+        return models
+
     def stream_messages(
         self,
         *,
         model: str,
         max_tokens: int,
         messages: list[dict[str, Any]],
-        system: str | None = None,
-        tools: list[dict[str, Any]] | None = None,
-        effort: str | None = None,
+        system: Optional[str] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        effort: Optional[str] = None,
     ):
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return _OpenAIStream(
                 client=self._client,
                 model=model,
@@ -188,14 +201,14 @@ class LLMClient:
         )
 
     def is_authentication_error(self, exc: Exception) -> bool:
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(exc, openai.AuthenticationError)
         return isinstance(exc, anthropic.AuthenticationError)
 
     def is_retryable_error(self, exc: Exception) -> bool:
         if isinstance(exc, (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError)):
             return True
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(
                 exc,
                 (
@@ -214,7 +227,7 @@ class LLMClient:
         )
 
     def is_api_error(self, exc: Exception) -> bool:
-        if self.provider == _OPENAI_PROVIDER:
+        if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(exc, openai.APIError)
         return isinstance(exc, anthropic.APIError)
 
@@ -228,8 +241,8 @@ class LLMClient:
         model: str,
         max_tokens: int,
         messages: list[dict[str, Any]],
-        system: str | None,
-        tools: list[dict[str, Any]] | None,
+        system: Optional[str],
+        tools: Optional[list[dict[str, Any]]],
     ) -> LLMMessage:
         kwargs: dict[str, Any] = dict(
             model=model,
@@ -253,9 +266,9 @@ class LLMClient:
         model: str,
         max_tokens: int,
         messages: list[dict[str, Any]],
-        system: str | None,
-        tools: list[dict[str, Any]] | None,
-        effort: str | None,
+        system: Optional[str],
+        tools: Optional[list[dict[str, Any]]],
+        effort: Optional[str],
     ) -> LLMMessage:
         params = _build_openai_request(
             model=model,
@@ -283,7 +296,7 @@ class _AnthropicStream:
         model: str,
         max_tokens: int,
         messages: list[dict[str, Any]],
-        system: str | None,
+        system: Optional[str],
         tools: list[dict[str, Any]],
     ):
         self._raw = client.messages.stream(
@@ -327,9 +340,9 @@ class _OpenAIStream:
         model: str,
         max_tokens: int,
         messages: list[dict[str, Any]],
-        system: str | None,
+        system: Optional[str],
         tools: list[dict[str, Any]],
-        effort: str | None,
+        effort: Optional[str],
     ):
         self._client = client
         self._params = _build_openai_request(
@@ -344,7 +357,7 @@ class _OpenAIStream:
         self._stream = None
         self._text_parts: list[str] = []
         self._tool_calls: dict[int, dict[str, Any]] = {}
-        self._usage: LLMUsage | None = None
+        self._usage: Optional[LLMUsage] = None
         self.text_stream: Iterator[str] = iter(())
 
     def __enter__(self):
@@ -421,7 +434,7 @@ def _normalize_anthropic_content(content: Any) -> list[dict[str, Any]]:
     return blocks
 
 
-def _normalize_anthropic_block(block: Any) -> dict[str, Any] | None:
+def _normalize_anthropic_block(block: Any) -> Optional[dict[str, Any]]:
     block_type = _value(block, "type")
     if block_type == "text":
         return {"type": "text", "text": _value(block, "text", "")}
@@ -495,7 +508,7 @@ def _extract_openai_text(content: Any) -> str:
     return "".join(parts)
 
 
-def _usage_from_anthropic(usage: Any) -> LLMUsage | None:
+def _usage_from_anthropic(usage: Any) -> Optional[LLMUsage]:
     if usage is None:
         return None
     return LLMUsage(
@@ -506,7 +519,7 @@ def _usage_from_anthropic(usage: Any) -> LLMUsage | None:
     )
 
 
-def _usage_from_openai(usage: Any) -> LLMUsage | None:
+def _usage_from_openai(usage: Any) -> Optional[LLMUsage]:
     if usage is None:
         return None
     return LLMUsage(
@@ -519,10 +532,10 @@ def _build_openai_request(
     *,
     model: str,
     max_tokens: int,
-    system: str | None,
+    system: Optional[str],
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
-    effort: str | None,
+    effort: Optional[str],
     stream: bool,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {
@@ -538,7 +551,7 @@ def _build_openai_request(
     return params
 
 
-def _to_openai_messages(system: str | None, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _to_openai_messages(system: Optional[str], messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if system:
         out.append({"role": "system", "content": system})

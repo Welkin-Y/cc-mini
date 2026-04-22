@@ -13,11 +13,10 @@ else:
 from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from .llm import (
-    default_companion_model,
     default_max_tokens_for_provider,
     default_model_for_provider,
     validate_provider,
@@ -29,6 +28,7 @@ DEFAULT_PROVIDER = "anthropic"
 DEFAULT_MODEL = default_model_for_provider(DEFAULT_PROVIDER)
 _ANTHROPIC_FALLBACK_MAX_TOKENS = 32000
 _OPENAI_FALLBACK_MAX_TOKENS = default_max_tokens_for_provider("openai")
+_LMSTUDIO_FALLBACK_MAX_TOKENS = default_max_tokens_for_provider("lmstudio")
 _MODEL_ALIASES = {
     "sonnet": "claude-sonnet-4-6",
     "opus": "claude-opus-4-6",
@@ -67,11 +67,11 @@ _MODEL_MAX_TOKENS = (
     ("claude-3-haiku", 4096),
 )
 _ENV_MODEL = "CC_MINI_MODEL"
+_ENV_MODELS = "CC_MINI_MODELS"
 _ENV_MAX_TOKENS = "CC_MINI_MAX_TOKENS"
 _ENV_MEMORY_DIR = "CC_MINI_MEMORY_DIR"
 _ENV_PROVIDER = "CC_MINI_PROVIDER"
 _ENV_EFFORT = "CC_MINI_EFFORT"
-_ENV_BUDDY_MODEL = "CC_MINI_BUDDY_MODEL"
 _DEFAULT_CONFIG_PATHS = (
     Path.home() / ".config" / "cc-mini" / "config.toml",
     Path.cwd() / ".cc-mini.toml",
@@ -81,12 +81,12 @@ _DEFAULT_CONFIG_PATHS = (
 @dataclass(frozen=True)
 class AppConfig:
     provider: str
-    api_key: str | None
-    base_url: str | None
+    api_key: Optional[str]
+    base_url: Optional[str]
     model: str
     max_tokens: int
-    effort: str | None = None
-    buddy_model: str | None = None
+    model_list: tuple[str, ...] = ()
+    effort: Optional[str] = None
     memory_dir: Path = Path.home() / ".config" / "cc-mini" / "memory"
     dream_interval_hours: float = 24.0
     dream_min_sessions: int = 5
@@ -94,7 +94,7 @@ class AppConfig:
     config_paths: tuple[Path, ...] = ()
 
 
-def resolve_model(model: str | None, provider: str = DEFAULT_PROVIDER) -> str:
+def resolve_model(model: Optional[str], provider: str = DEFAULT_PROVIDER) -> str:
     provider = validate_provider(provider)
     if not model:
         return default_model_for_provider(provider)
@@ -105,7 +105,7 @@ def resolve_model(model: str | None, provider: str = DEFAULT_PROVIDER) -> str:
 
 
 def default_max_tokens_for_model(
-    model: str | None,
+    model: Optional[str],
     provider: str = DEFAULT_PROVIDER,
 ) -> int:
     provider = validate_provider(provider)
@@ -123,6 +123,8 @@ def default_max_tokens_for_model(
             if resolved.startswith(prefix):
                 return limit
         return _OPENAI_FALLBACK_MAX_TOKENS
+    if provider == "lmstudio":
+        return _LMSTUDIO_FALLBACK_MAX_TOKENS
 
     for prefix, limit in _MODEL_MAX_TOKENS:
         if resolved.startswith(prefix):
@@ -153,6 +155,9 @@ def load_app_config(args: Namespace) -> AppConfig:
 
     raw_model = args.model or env_values.get("model") or _file_value("model")
     model = resolve_model(raw_model, provider=provider)
+    model_list = _parse_model_list(
+        env_values.get("models", _file_value("models")),
+    )
 
     raw_max_tokens = (
         args.max_tokens
@@ -168,11 +173,6 @@ def load_app_config(args: Namespace) -> AppConfig:
     if raw_effort is None:
         raw_effort = env_values.get("effort", _file_value("effort"))
     effort = _parse_effort(raw_effort)
-
-    raw_buddy_model = getattr(args, "buddy_model", None)
-    if raw_buddy_model is None:
-        raw_buddy_model = env_values.get("buddy_model", _file_value("buddy_model"))
-    buddy_model = resolve_model(raw_buddy_model, provider=provider) if raw_buddy_model else None
 
     raw_memory_dir = (
         getattr(args, "memory_dir", None)
@@ -202,9 +202,9 @@ def load_app_config(args: Namespace) -> AppConfig:
         api_key=args.api_key or selected_env_values.get("api_key") or _file_value("api_key"),
         base_url=args.base_url or selected_env_values.get("base_url") or _file_value("base_url"),
         model=model,
+        model_list=model_list,
         max_tokens=max_tokens,
         effort=effort,
-        buddy_model=buddy_model or default_companion_model(provider, model),
         memory_dir=memory_dir,
         dream_interval_hours=dream_interval,
         dream_min_sessions=dream_min_sessions,
@@ -213,10 +213,10 @@ def load_app_config(args: Namespace) -> AppConfig:
     )
 
 
-def _load_file_values(explicit_path: str | None) -> tuple[dict[str, Any], tuple[Path, ...]]:
+def _load_file_values(explicit_path: Optional[str]) -> tuple[dict[str, Any], tuple[Path, ...]]:
     values: dict[str, Any] = {
         "top": {},
-        "providers": {"anthropic": {}, "openai": {}},
+        "providers": {"anthropic": {}, "openai": {}, "lmstudio": {}},
     }
     loaded_paths: list[Path] = []
 
@@ -248,10 +248,10 @@ def _read_config_file(path: Path) -> dict[str, Any]:
 
     values: dict[str, Any] = {
         "top": {},
-        "providers": {"anthropic": {}, "openai": {}},
+        "providers": {"anthropic": {}, "openai": {}, "lmstudio": {}},
     }
 
-    for provider in ("anthropic", "openai"):
+    for provider in ("anthropic", "openai", "lmstudio"):
         section = data.get(provider, {})
         if isinstance(section, dict):
             values["providers"][provider].update(section)
@@ -261,9 +261,9 @@ def _read_config_file(path: Path) -> dict[str, Any]:
         "api_key",
         "base_url",
         "model",
+        "models",
         "max_tokens",
         "effort",
-        "buddy_model",
         "memory_dir",
         "dream_interval_hours",
         "dream_min_sessions",
@@ -283,20 +283,24 @@ def _load_env_values() -> dict[str, Any]:
         values["openai_api_key"] = os.environ["OPENAI_API_KEY"]
     if os.getenv("OPENAI_BASE_URL"):
         values["openai_base_url"] = os.environ["OPENAI_BASE_URL"]
+    if os.getenv("LMSTUDIO_API_KEY"):
+        values["lmstudio_api_key"] = os.environ["LMSTUDIO_API_KEY"]
+    if os.getenv("LMSTUDIO_BASE_URL"):
+        values["lmstudio_base_url"] = os.environ["LMSTUDIO_BASE_URL"]
     if os.getenv("ANTHROPIC_API_KEY"):
         values["anthropic_api_key"] = os.environ["ANTHROPIC_API_KEY"]
     if os.getenv("ANTHROPIC_BASE_URL"):
         values["anthropic_base_url"] = os.environ["ANTHROPIC_BASE_URL"]
     if os.getenv(_ENV_MODEL):
         values["model"] = os.environ[_ENV_MODEL]
+    if os.getenv(_ENV_MODELS):
+        values["models"] = os.environ[_ENV_MODELS]
     if os.getenv(_ENV_MAX_TOKENS):
         values["max_tokens"] = os.environ[_ENV_MAX_TOKENS]
     if os.getenv(_ENV_MEMORY_DIR):
         values["memory_dir"] = os.environ[_ENV_MEMORY_DIR]
     if os.getenv(_ENV_EFFORT):
         values["effort"] = os.environ[_ENV_EFFORT]
-    if os.getenv(_ENV_BUDDY_MODEL):
-        values["buddy_model"] = os.environ[_ENV_BUDDY_MODEL]
     return values
 
 
@@ -314,7 +318,7 @@ def _parse_max_tokens(raw_value: Any, default: int) -> int:
     return value
 
 
-def _parse_effort(raw_value: Any) -> str | None:
+def _parse_effort(raw_value: Any) -> Optional[str]:
     if raw_value is None:
         return None
     normalized = str(raw_value).strip().lower()
@@ -323,9 +327,28 @@ def _parse_effort(raw_value: Any) -> str | None:
     return normalized
 
 
+def _parse_model_list(raw_value: Any) -> tuple[str, ...]:
+    if raw_value is None:
+        return ()
+    if isinstance(raw_value, str):
+        items = [item.strip() for item in raw_value.split(",")]
+        return tuple(item for item in items if item)
+    if isinstance(raw_value, list):
+        parsed: list[str] = []
+        for item in raw_value:
+            normalized = str(item).strip()
+            if normalized:
+                parsed.append(normalized)
+        return tuple(parsed)
+    raise ValueError("models must be a TOML array or comma-separated string")
+
+
 def _infer_provider(provider_values: dict[str, dict[str, Any]]) -> str:
     openai_values = provider_values.get("openai", {})
     anthropic_values = provider_values.get("anthropic", {})
+    lmstudio_values = provider_values.get("lmstudio", {})
+    if lmstudio_values and not openai_values and not anthropic_values:
+        return "lmstudio"
     if openai_values and not anthropic_values:
         return "openai"
     return DEFAULT_PROVIDER
@@ -333,7 +356,7 @@ def _infer_provider(provider_values: dict[str, dict[str, Any]]) -> str:
 
 def _merge_file_values(target: dict[str, Any], incoming: dict[str, Any]) -> None:
     target["top"].update(incoming.get("top", {}))
-    for provider in ("anthropic", "openai"):
+    for provider in ("anthropic", "openai", "lmstudio"):
         target["providers"][provider].update(incoming.get("providers", {}).get(provider, {}))
 
 
@@ -343,6 +366,11 @@ def _provider_env_values(env_values: dict[str, Any], provider: str) -> dict[str,
         return {
             "api_key": env_values.get("openai_api_key"),
             "base_url": env_values.get("openai_base_url"),
+        }
+    if provider == "lmstudio":
+        return {
+            "api_key": env_values.get("lmstudio_api_key"),
+            "base_url": env_values.get("lmstudio_base_url"),
         }
     return {
         "api_key": env_values.get("anthropic_api_key"),

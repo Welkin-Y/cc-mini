@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 import glob as glob_module
 import subprocess
 from pathlib import Path
@@ -39,7 +40,7 @@ class GlobTool(Tool):
     def is_read_only(self) -> bool:
         return True
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         pattern = kwargs.get("pattern", "")
         return f"Finding {pattern}" if pattern else None
 
@@ -96,11 +97,11 @@ class GlobTool(Tool):
 
     def _python_glob(self, pattern: str, base: Path) -> list[str]:
         """Fallback using Python's glob module."""
-        matches = glob_module.glob(pattern, root_dir=str(base), recursive=True)
+        matches = [str(path) for path in base.glob(pattern)]
         # Sort by modification time (oldest first, matching rg --sort=modified)
         matches = sorted(
             matches,
-            key=lambda p: (base / p).stat().st_mtime,
+            key=lambda p: Path(p).stat().st_mtime,
             reverse=True,
         )
-        return [str(base / m) for m in matches]
+        return matches

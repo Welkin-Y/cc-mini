@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-from typing import Iterable
+from typing import Iterable, Optional
 
 
 COORDINATOR_ENV_VAR = "CC_MINI_COORDINATOR"
 
 
-def _is_env_truthy(value: str | None) -> bool:
+def _is_env_truthy(value: Optional[str]) -> bool:
     if value is None:
         return False
     return value.strip().lower() not in {"", "0", "false", "no", "off"}
@@ -28,7 +28,7 @@ def current_session_mode() -> str:
     return "coordinator" if is_coordinator_mode() else "normal"
 
 
-def match_session_mode(session_mode: str | None) -> str | None:
+def match_session_mode(session_mode: Optional[str]) -> Optional[str]:
     if session_mode not in {"coordinator", "normal"}:
         return None
 

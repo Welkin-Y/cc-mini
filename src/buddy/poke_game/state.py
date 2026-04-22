@@ -4,9 +4,10 @@ The session lives only as long as the terminal process.
 """
 from __future__ import annotations
 
+from typing import Optional
 from .types import GameSession, Item, Skill, Badge, INITIAL_STATS
 
-_current_session: GameSession | None = None
+_current_session: Optional[GameSession] = None
 
 
 def new_session(
@@ -27,11 +28,11 @@ def new_session(
     return _current_session
 
 
-def get_session() -> GameSession | None:
+def get_session() -> Optional[GameSession]:
     return _current_session
 
 
-def end_session() -> GameSession | None:
+def end_session() -> Optional[GameSession]:
     """Mark session inactive and return it for persistence."""
     global _current_session
     s = _current_session
@@ -59,7 +60,7 @@ def add_item(item: Item) -> None:
         _current_session.inventory.append(item)
 
 
-def remove_random_item() -> Item | None:
+def remove_random_item() -> Optional[Item]:
     s = _current_session
     if not s or not s.inventory:
         return None
@@ -74,7 +75,7 @@ def add_skill(skill: Skill) -> None:
         _current_session.skills.append(skill)
 
 
-def remove_random_skill() -> Skill | None:
+def remove_random_skill() -> Optional[Skill]:
     s = _current_session
     if not s or not s.skills:
         return None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Optional
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,7 +19,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _run_sandboxed(command: str, config: SandboxConfig | None = None, cwd: str | None = None) -> subprocess.CompletedProcess:
+def _run_sandboxed(command: str, config: Optional[SandboxConfig] = None, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
     """Helper: run a command inside sandbox and return CompletedProcess."""
     cfg = config or SandboxConfig(enabled=True)
     wrapped = wrap_command(command, cfg, cwd=cwd)

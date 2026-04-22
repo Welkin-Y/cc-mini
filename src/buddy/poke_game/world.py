@@ -6,6 +6,7 @@ No LLM involved here; this is the fixed game framework.
 """
 from __future__ import annotations
 
+from typing import Optional
 from .types import Location, Monster, NPC, Item
 
 # ===========================================================================
@@ -73,8 +74,8 @@ BUDDY_TALK_RESPONSES: list[str] = [
 NPCS: dict[str, NPC] = {}
 
 def _npc(name: str, species: str, personality: str, disposition: str,
-         greeting: str, gifts: list[dict] | None = None,
-         secrets: list[int] | None = None,
+         greeting: str, gifts: Optional[list[dict]] = None,
+         secrets: Optional[list[int]] = None,
          gift_chance: float = 0.30, ignore_chance: float = 0.30,
          secret_chance: float = 0.40) -> NPC:
     # secrets are indices into WORLD_SECRETS
@@ -206,7 +207,7 @@ LOCATIONS: dict[str, Location] = {}
 
 
 def _loc(name: str, region: str, desc: str, connections: list[str],
-         event_weights: dict[str, float] | None = None,
+         event_weights: Optional[dict[str, float]] = None,
          ticket_bonus: int = 0) -> Location:
     loc = Location(
         name=name, region=region, description=desc,
@@ -376,7 +377,7 @@ for _name, _loc_obj in LOCATIONS.items():
 REGION_ORDER = ["幽暗森林", "水晶洞穴", "风暴山脉", "深海遗迹", "机械废墟", "星光圣殿"]
 
 
-def get_location(name: str) -> Location | None:
+def get_location(name: str) -> Optional[Location]:
     return LOCATIONS.get(name)
 
 
@@ -453,7 +454,7 @@ MONSTERS_BY_REGION: dict[str, list[Monster]] = {
 }
 
 
-def get_random_monster(region: str) -> Monster | None:
+def get_random_monster(region: str) -> Optional[Monster]:
     """Get a random monster for the given region."""
     import random
     pool = MONSTERS_BY_REGION.get(region)

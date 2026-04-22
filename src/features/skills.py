@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -35,17 +35,17 @@ class Skill:
     user_invocable: bool = True
     disable_model_invocation: bool = False
     allowed_tools: list[str] = field(default_factory=list)
-    model: str | None = None
+    model: Optional[str] = None
     context: str = "inline"          # "inline" or "fork"
     argument_hint: str = ""
     paths: list[str] = field(default_factory=list)  # gitignore-style patterns
     source: str = "project"          # "bundled", "project", "user"
-    skill_root: str | None = None    # base dir for $SKILL_DIR substitution
+    skill_root: Optional[str] = None    # base dir for $SKILL_DIR substitution
 
     # The prompt content (body of SKILL.md, after frontmatter)
     _prompt_text: str = ""
     # Or a dynamic prompt generator (for bundled skills)
-    _prompt_fn: Callable[[str], str] | None = None
+    _prompt_fn: Optional[Callable[[str], str]] = None
 
     def get_prompt(self, args: str = "") -> str:
         """Return the final prompt text, substituting variables."""
@@ -120,7 +120,7 @@ def _ensure_str(val: Any, default: str = "") -> str:
 
 def _skill_from_frontmatter(meta: dict[str, Any], body: str,
                              name: str, source: str,
-                             skill_root: str | None = None) -> Skill:
+                             skill_root: Optional[str] = None) -> Skill:
     """Build a ``Skill`` from parsed frontmatter and body text."""
     allowed = meta.get("allowed_tools", [])
     if isinstance(allowed, str):
@@ -159,7 +159,7 @@ def register_skill(skill: Skill) -> None:
     _REGISTRY[skill.name] = skill
 
 
-def get_skill(name: str) -> Skill | None:
+def get_skill(name: str) -> Optional[Skill]:
     """Look up a skill by name."""
     return _REGISTRY.get(name)
 
@@ -172,7 +172,7 @@ def list_skills(user_invocable_only: bool = True) -> list[Skill]:
     return sorted(skills, key=lambda s: (s.source != "bundled", s.name))
 
 
-def clear_skills(source: str | None = None) -> None:
+def clear_skills(source: Optional[str] = None) -> None:
     """Remove skills from the registry.  If *source* given, only that source."""
     if source is None:
         _REGISTRY.clear()
@@ -242,7 +242,7 @@ def load_skills_from_dir(skills_dir: Path, source: str = "project") -> list[Skil
     return loaded
 
 
-def discover_skills(cwd: str | None = None) -> list[Skill]:
+def discover_skills(cwd: Optional[str] = None) -> list[Skill]:
     """Discover and register skills from standard locations.
 
     Search order (matches claude-code's four-tier hierarchy):

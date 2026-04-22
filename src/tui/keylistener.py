@@ -11,7 +11,7 @@ import signal
 import sys
 import select
 import threading
-from typing import Callable
+from typing import Callable, Optional
 
 try:
     import termios
@@ -29,13 +29,13 @@ class EscListener:
     after, so the listener thread does not steal keystrokes.
     """
 
-    def __init__(self, on_cancel: Callable[[], None] | None = None):
+    def __init__(self, on_cancel: Optional[Callable[[], None]] = None):
         self.pressed = False
         self._on_cancel = on_cancel
         self._stop = threading.Event()
         self._paused = threading.Event()   # set = paused, clear = running
-        self._thread: threading.Thread | None = None
-        self._tty_fd: int | None = None       # dedicated /dev/tty fd
+        self._thread: Optional[threading.Thread] = None
+        self._tty_fd: Optional[int] = None       # dedicated /dev/tty fd
         self._old_settings = None
 
     # -- context manager --------------------------------------------------
@@ -153,12 +153,12 @@ if not _HAS_TERMIOS:
     class EscListener:  # type: ignore[no-redef]
         """Windows version using msvcrt."""
 
-        def __init__(self, on_cancel: Callable[[], None] | None = None):
+        def __init__(self, on_cancel: Optional[Callable[[], None]] = None):
             self.pressed = False
             self._on_cancel = on_cancel
             self._stop = threading.Event()
             self._paused = threading.Event()
-            self._thread: threading.Thread | None = None
+            self._thread: Optional[threading.Thread] = None
 
         def __enter__(self):
             self.pressed = False

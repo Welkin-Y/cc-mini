@@ -1,6 +1,7 @@
 """Input parsing — extract @image references from user input."""
 from __future__ import annotations
 
+from typing import Union
 import base64
 import mimetypes
 import re
@@ -10,7 +11,7 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _IMG_PATH_RE = re.compile(r"@(\S+)")
 
 
-def parse_input(text: str) -> str | list:
+def parse_input(text: str) -> Union[str, list]:
     """Parse user input, extracting @path image references into content blocks.
 
     Returns plain string if no images, or a list of content blocks if images found.

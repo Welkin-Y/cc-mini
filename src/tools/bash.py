@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import subprocess
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from core.tool import Tool, ToolResult
 
@@ -69,13 +69,13 @@ class BashTool(Tool):
         "required": ["command"],
     }
 
-    def get_activity_description(self, **kwargs) -> str | None:
+    def get_activity_description(self, **kwargs) -> Optional[str]:
         command = kwargs.get("command", "")
         # Show a truncated version of the command
         preview = command[:60] + "…" if len(command) > 60 else command
         return f"Running {preview}" if command else None
 
-    def __init__(self, sandbox_manager: SandboxManager | None = None):
+    def __init__(self, sandbox_manager: Optional[SandboxManager] = None):
         self._sandbox = sandbox_manager
 
     def execute(

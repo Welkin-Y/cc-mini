@@ -17,6 +17,7 @@ for the "Other" option — matching the official behavior:
 
 from __future__ import annotations
 
+from typing import Optional
 from core.tool import Tool, ToolResult
 
 # Internal sentinel — never surfaced to the model.
@@ -27,7 +28,7 @@ _OTHER = "__other__"
 # Interactive selector built on prompt_toolkit
 # ---------------------------------------------------------------------------
 
-def _select_one(question: str, labels: list[str], descriptions: list[str]) -> str | None:
+def _select_one(question: str, labels: list[str], descriptions: list[str]) -> Optional[str]:
     """Arrow-key navigable single-select menu matching official Claude Code.
 
     The last option is always "Other" which shows an inline text input when
@@ -178,7 +179,7 @@ def _select_one(question: str, labels: list[str], descriptions: list[str]) -> st
     return result[0] if result[0] != _OTHER else None
 
 
-def _select_multi(question: str, labels: list[str], descriptions: list[str]) -> list[str] | None:
+def _select_multi(question: str, labels: list[str], descriptions: list[str]) -> Optional[list[str]]:
     """Arrow-key navigable multi-select menu with inline Other text input.
 
     Space to toggle, Enter to confirm.  Matches official behavior:

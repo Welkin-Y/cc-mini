@@ -24,7 +24,6 @@ def _args(**overrides):
         "model": None,
         "max_tokens": None,
         "effort": None,
-        "buddy_model": None,
         "memory_dir": None,
         "no_auto_dream": False,
         "dream_interval": None,
@@ -32,6 +31,80 @@ def _args(**overrides):
     }
     values.update(overrides)
     return Namespace(**values)
+
+
+def test_load_app_config_reads_lmstudio_section(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("CC_MINI_PROVIDER", raising=False)
+    monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+    monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
+
+    config_path = tmp_path / "cc-mini.toml"
+    config_path.write_text(
+        'provider = "lmstudio"\n'
+        '[lmstudio]\n'
+        'api_key = "lm-key"\n'
+        'base_url = "http://localhost:1234/v1"\n'
+        'model = "local-model"\n'
+        'max_tokens = 2048\n',
+        encoding="utf-8",
+    )
+
+    config = load_app_config(_args(config=str(config_path)))
+
+    assert config.provider == "lmstudio"
+    assert config.api_key == "lm-key"
+    assert config.base_url == "http://localhost:1234/v1"
+    assert config.model == "local-model"
+    assert config.max_tokens == 2048
+
+
+def test_lmstudio_env_wins_when_provider_is_lmstudio(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CC_MINI_PROVIDER", "lmstudio")
+    monkeypatch.setenv("LMSTUDIO_API_KEY", "lm-env-key")
+    monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
+    monkeypatch.setenv("CC_MINI_MODEL", "custom-local-model")
+
+    config = load_app_config(_args())
+
+    assert config.provider == "lmstudio"
+    assert config.api_key == "lm-env-key"
+    assert config.base_url == "http://127.0.0.1:1234/v1"
+    assert config.model == "custom-local-model"
+
+
+def test_load_app_config_reads_lmstudio_models_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("CC_MINI_PROVIDER", raising=False)
+    monkeypatch.delenv("CC_MINI_MODELS", raising=False)
+
+    config_path = tmp_path / "cc-mini.toml"
+    config_path.write_text(
+        'provider = "lmstudio"\n'
+        '[lmstudio]\n'
+        'models = ["qwen-local", "llama-local"]\n',
+        encoding="utf-8",
+    )
+
+    config = load_app_config(_args(config=str(config_path)))
+
+    assert config.provider == "lmstudio"
+    assert config.model_list == ("qwen-local", "llama-local")
+
+
+def test_env_models_override_config_models(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setenv("CC_MINI_PROVIDER", "lmstudio")
+    monkeypatch.setenv("CC_MINI_MODELS", "qwen-local, llama-local")
+
+    config_path = tmp_path / "cc-mini.toml"
+    config_path.write_text(
+        'provider = "lmstudio"\n'
+        '[lmstudio]\n'
+        'models = ["stale-model"]\n',
+        encoding="utf-8",
+    )
+
+    config = load_app_config(_args(config=str(config_path)))
+
+    assert config.model_list == ("qwen-local", "llama-local")
 
 
 def test_resolve_model_keeps_full_model_name():
@@ -47,8 +120,11 @@ def test_default_max_tokens_follow_model_family():
 
 
 def test_load_app_config_reads_anthropic_section(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("CC_MINI_PROVIDER", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+    monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
     monkeypatch.delenv("CC_MINI_MODEL", raising=False)
     monkeypatch.delenv("CC_MINI_MAX_TOKENS", raising=False)
 
@@ -101,8 +177,11 @@ def test_load_app_config_cli_overrides_env_and_file(tmp_path: Path, monkeypatch:
 
 
 def test_load_app_config_uses_defaults_when_nothing_is_set(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("CC_MINI_PROVIDER", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+    monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
     monkeypatch.delenv("CC_MINI_MODEL", raising=False)
     monkeypatch.delenv("CC_MINI_MAX_TOKENS", raising=False)
 
@@ -127,6 +206,9 @@ def test_load_app_config_reads_openai_section(tmp_path: Path, monkeypatch: pytes
     monkeypatch.delenv("CC_MINI_PROVIDER", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+    monkeypatch.delenv("LMSTUDIO_BASE_URL", raising=False)
+    monkeypatch.delenv("CC_MINI_MODEL", raising=False)
 
     config_path = tmp_path / "cc-mini.toml"
     config_path.write_text(
@@ -136,8 +218,7 @@ def test_load_app_config_reads_openai_section(tmp_path: Path, monkeypatch: pytes
         'base_url = "https://openai.test"\n'
         'model = "gpt-4.1-mini"\n'
         'max_tokens = 4096\n'
-        'effort = "low"\n'
-        'buddy_model = "gpt-4.1-nano"\n',
+        'effort = "low"\n',
         encoding="utf-8",
     )
 
@@ -149,7 +230,6 @@ def test_load_app_config_reads_openai_section(tmp_path: Path, monkeypatch: pytes
     assert config.model == "gpt-4.1-mini"
     assert config.max_tokens == 4096
     assert config.effort == "low"
-    assert config.buddy_model == "gpt-4.1-nano"
 
 
 def test_openai_env_wins_when_provider_is_openai(monkeypatch: pytest.MonkeyPatch):
@@ -157,7 +237,6 @@ def test_openai_env_wins_when_provider_is_openai(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://openai.env")
     monkeypatch.setenv("CC_MINI_MODEL", "gpt-4.1")
-    monkeypatch.setenv("CC_MINI_BUDDY_MODEL", "gpt-4.1-mini")
 
     config = load_app_config(_args())
 
@@ -165,4 +244,3 @@ def test_openai_env_wins_when_provider_is_openai(monkeypatch: pytest.MonkeyPatch
     assert config.api_key == "openai-env-key"
     assert config.base_url == "https://openai.env"
     assert config.model == "gpt-4.1"
-    assert config.buddy_model == "gpt-4.1-mini"

@@ -7,6 +7,7 @@ No Rich.Live — avoids thread conflicts with tty raw mode.
 """
 from __future__ import annotations
 
+from typing import Optional
 import os
 import sys
 import threading
@@ -41,7 +42,7 @@ GACHA = "GACHA"
 # Non-blocking keyboard input (requires tty raw mode)
 # ---------------------------------------------------------------------------
 
-def _read_key() -> str | None:
+def _read_key() -> Optional[str]:
     """Non-blocking key read using raw fd I/O.
 
     Reads all available bytes at once and matches complete sequences.

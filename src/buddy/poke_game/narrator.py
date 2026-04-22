@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import random
 import re
-from typing import Any
+from typing import Any, Optional
 
 from .types import GameSession, Item, Skill, NPC, ELEMENTS, RARITIES
 
@@ -167,7 +167,7 @@ class Narrator:
             f"NPC由系统管理，不要生成NPC事件。"
         )
 
-    def _call_llm(self, user_msg: str, session: GameSession) -> str | None:
+    def _call_llm(self, user_msg: str, session: GameSession) -> Optional[str]:
         """Call LLM, return raw response text or None on failure."""
         if not self._llm_available or not self._client:
             return None

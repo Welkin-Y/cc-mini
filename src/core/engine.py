@@ -3,7 +3,7 @@ import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, Optional, Union
 from .config import DEFAULT_MODEL, default_max_tokens_for_model, resolve_model
 from .llm import LLMClient
 from .tool import Tool, ToolResult
@@ -19,7 +19,7 @@ _MAX_DELAY = 32.0
 _JITTER_FACTOR = 0.25
 
 
-def _compute_retry_delay(attempt: int, retry_after: float | None = None) -> float:
+def _compute_retry_delay(attempt: int, retry_after: Optional[float] = None) -> float:
     """Exponential backoff with jitter, respecting Retry-After if present."""
     if retry_after is not None and retry_after > 0:
         return retry_after
@@ -28,7 +28,7 @@ def _compute_retry_delay(attempt: int, retry_after: float | None = None) -> floa
     return delay + jitter
 
 
-def _parse_retry_after(exc: Exception) -> float | None:
+def _parse_retry_after(exc: Exception) -> Optional[float]:
     """Extract Retry-After value from API error headers, if available."""
     headers = getattr(getattr(exc, "response", None), "headers", None)
     if headers is None:
@@ -57,12 +57,12 @@ class Engine:
                  permission_checker: PermissionChecker,
                  provider: str = "anthropic",
                  model: str = DEFAULT_MODEL,
-                 max_tokens: int | None = None,
-                 api_key: str | None = None,
-                 base_url: str | None = None,
-                 effort: str | None = None,
-                 session_store: SessionStore | None = None,
-                 cost_tracker: CostTracker | None = None):
+                 max_tokens: Optional[int] = None,
+                 api_key: Optional[str] = None,
+                 base_url: Optional[str] = None,
+                 effort: Optional[str] = None,
+                 session_store: Optional[SessionStore] = None,
+                 cost_tracker: Optional[CostTracker] = None):
         self._provider = provider
         self._model = resolve_model(model, provider=provider)
         self._max_tokens = max_tokens or default_max_tokens_for_model(
@@ -80,7 +80,7 @@ class Engine:
         self._permissions = permission_checker
         self._messages: list[dict] = []
         self._aborted = False
-        self._turn_start_len: int | None = None
+        self._turn_start_len: Optional[int] = None
         self._active_stream = None  # reference to current HTTP stream
         self._session_store = session_store
         self._cost_tracker = cost_tracker
@@ -99,7 +99,7 @@ class Engine:
             for message in messages
         ]
 
-    def set_session_store(self, store: SessionStore | None) -> None:
+    def set_session_store(self, store: Optional[SessionStore]) -> None:
         self._session_store = store
 
     def set_tools(self, tools: list[Tool]) -> None:
@@ -107,6 +107,9 @@ class Engine:
 
     def get_model(self) -> str:
         return self._model
+
+    def list_available_models(self) -> list[str]:
+        return self._client.list_models()
 
     def set_model(self, model: str) -> None:
         self._model = resolve_model(model, provider=self._provider)
@@ -176,7 +179,7 @@ class Engine:
             del self._messages[self._turn_start_len:]
             self._turn_start_len = None
 
-    def submit(self, user_input: str | list) -> Iterator[tuple]:
+    def submit(self, user_input: Union[str, list]) -> Iterator[tuple]:
         """Send user message; yield events until the conversation turn completes.
 
         Yields:
@@ -417,7 +420,7 @@ class Engine:
 
         try:
             # Snapshot file for diff if it's a write tool we want to track
-            old_lines: list[str] | None = None
+            old_lines: Optional[list[str]] = None
             if self._cost_tracker and tool_name in ("Edit", "Write"):
                 fp = tool_input.get("file_path", "")
                 try:
@@ -446,7 +449,7 @@ class Engine:
             return ToolResult(content=f"Tool error: {e}", is_error=True)
 
 
-def _block_type(block: Any) -> str | None:
+def _block_type(block: Any) -> Optional[str]:
     if isinstance(block, dict):
         return block.get("type")
     return getattr(block, "type", None)

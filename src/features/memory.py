@@ -6,7 +6,7 @@ import os
 import re
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 MEMORY_DIR = Path.home() / ".config" / "cc-mini" / "memory"
 SESSIONS_DIR = Path.home() / ".config" / "cc-mini" / "sessions"
@@ -31,7 +31,7 @@ def ensure_memory_dir(memory_dir: Path) -> None:
     (memory_dir / "logs").mkdir(parents=True, exist_ok=True)
 
 
-def daily_log_path(memory_dir: Path, today: date | None = None) -> Path:
+def daily_log_path(memory_dir: Path, today: Optional[date] = None) -> Path:
     """Return memory_dir/logs/YYYY/MM/YYYY-MM-DD.md, creating parents."""
     today = today or date.today()
     path = memory_dir / "logs" / str(today.year) / f"{today.month:02d}" / f"{today.isoformat()}.md"
@@ -137,7 +137,7 @@ def count_sessions_since(since_ts: float) -> int:
 
 def should_auto_dream(memory_dir: Path, min_hours: float, min_sessions: int,
                       current_session_id: str,
-                      sessions_dir: Path | None = None) -> bool:
+                      sessions_dir: Optional[Path] = None) -> bool:
     """Check all gates: time ≥ min_hours AND sessions ≥ min_sessions.
 
     Includes a 10-minute scan throttle (mirrors TS SESSION_SCAN_INTERVAL_MS)
@@ -169,7 +169,7 @@ def should_auto_dream(memory_dir: Path, min_hours: float, min_sessions: int,
     return count >= min_sessions
 
 
-def list_sessions_since(since_ts: float, sessions_dir: Path | None = None,
+def list_sessions_since(since_ts: float, sessions_dir: Optional[Path] = None,
                         current_session_id: str = "") -> list[str]:
     """Return session IDs (filenames without .jsonl) touched since since_ts."""
     scan_dir = sessions_dir or SESSIONS_DIR
@@ -308,7 +308,7 @@ brief descriptions. Keep it under 200 lines.
 # ---------------------------------------------------------------------------
 
 def build_dream_prompt(memory_dir: Path, transcript_dir: str = "",
-                       session_ids: list[str] | None = None) -> str:
+                       session_ids: Optional[list[str]] = None) -> str:
     """Build the 4-phase consolidation prompt for the dream agent.
 
     Closely mirrors Claude Code's consolidationPrompt.ts.
@@ -427,7 +427,7 @@ def save_session(messages: list[dict], session_id: str) -> None:
     link.symlink_to(path.name)
 
 
-def load_session(session_id: str | None = None) -> list[dict] | None:
+def load_session(session_id: Optional[str] = None) -> Optional[list[dict]]:
     """Load messages from JSONL. If no ID, follow the last-session symlink."""
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 

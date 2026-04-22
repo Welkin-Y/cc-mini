@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import sys
 import select
-from typing import Literal, TYPE_CHECKING
+from typing import Literal, TYPE_CHECKING, Optional
 from .tool import Tool
 
 if TYPE_CHECKING:
@@ -27,20 +27,20 @@ class PermissionChecker:
     def __init__(
         self,
         auto_approve: bool = False,
-        sandbox_manager: SandboxManager | None = None,
+        sandbox_manager: Optional[SandboxManager] = None,
     ):
         self._auto_approve = auto_approve
         self._always_allow: set[str] = set()
-        self._esc_listener: EscListener | None = None
+        self._esc_listener: Optional[EscListener] = None
         self._sandbox = sandbox_manager
-        self._plan_manager: PlanModeManager | None = None
+        self._plan_manager: Optional[PlanModeManager] = None
         # Permission mode tracking (matches toolPermissionContext.mode in TS)
         self._mode: str = "default"  # 'default' | 'plan'
-        self._pre_plan_mode: str | None = None
-        self._pre_plan_always_allow: set[str] | None = None
+        self._pre_plan_mode: Optional[str] = None
+        self._pre_plan_always_allow: Optional[set[str]] = None
         # Dream mode: restrict writes to memory directory only
         self._dream_mode: bool = False
-        self._dream_memory_dir: str | None = None
+        self._dream_memory_dir: Optional[str] = None
 
     def set_plan_manager(self, plan_manager: PlanModeManager) -> None:
         self._plan_manager = plan_manager
@@ -54,7 +54,7 @@ class PermissionChecker:
         self._dream_mode = False
         self._dream_memory_dir = None
 
-    def set_esc_listener(self, listener: EscListener | None):
+    def set_esc_listener(self, listener: Optional[EscListener]):
         self._esc_listener = listener
 
     @property

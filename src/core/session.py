@@ -16,7 +16,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 _SESSIONS_ROOT = Path.home() / ".config" / "cc-mini" / "sessions"
@@ -35,7 +35,7 @@ class SessionMeta:
     created_at: str
     updated_at: str
     message_count: int = 0
-    mode: str | None = None
+    mode: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +111,8 @@ class SessionStore:
     """Manages JSONL persistence for a single session."""
 
     def __init__(self, cwd: str, model: str,
-                 session_id: str | None = None,
-                 mode: str | None = None):
+                 session_id: Optional[str] = None,
+                 mode: Optional[str] = None):
         self.session_id = session_id or uuid.uuid4().hex
         self.cwd = cwd
         self.model = model
@@ -198,7 +198,7 @@ class SessionStore:
         return results
 
     @classmethod
-    def load_session(cls, session_id: str, cwd: str) -> tuple[SessionMeta | None, list[dict]]:
+    def load_session(cls, session_id: str, cwd: str) -> tuple[Optional[SessionMeta], list[dict]]:
         """Load metadata + messages for *session_id*."""
         d = _SESSIONS_ROOT / _sanitize_cwd(cwd)
         meta_path = d / f"{session_id}.meta.json"

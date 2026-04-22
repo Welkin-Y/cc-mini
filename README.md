@@ -11,18 +11,6 @@ The entire core is `~1000 lines of Python`
 
 </div>
 
----
-
-### **NEW: Buddy — AI Companion with Custom Sprites**
-
-> Your coding companion lives in the terminal. Type `/buddy` to hatch it. Supports custom ASCII species — bring your own Pikachu!
-
-![Custom Pikachu buddy companion](assets/buddy-pikachu.jpg)
-
-[Full Buddy docs &rarr;](docs/buddy.md)
-
----
-
 ## Features
 
 ### Core
@@ -41,7 +29,6 @@ The entire core is `~1000 lines of Python`
 | Feature | Description | Docs |
 |---------|-------------|------|
 | **Coordinator Mode** | Background workers for parallel research and implementation | [docs &rarr;](docs/coordinator.md) |
-| **Buddy** | Tamagotchi AI pet with personality, stats, mood, and speech bubbles | [docs &rarr;](docs/buddy.md) |
 | **KAIROS Memory** | Cross-session memory with auto-consolidation | [docs &rarr;](docs/memory.md) |
 | **Skills** | One-command workflows: `/review`, `/commit`, `/test`, `/simplify` | [docs &rarr;](docs/skills.md) |
 | **Sandbox** | Bubblewrap isolation for bash commands | [docs &rarr;](docs/sandbox.md) |
@@ -52,7 +39,7 @@ The entire core is `~1000 lines of Python`
 
 ### Requirements
 
-- Python 3.10+ (3.11+ recommended)
+- Python 3.9+ (3.11+ recommended outside Docker)
 - An API key for [Anthropic](https://console.anthropic.com/) or any OpenAI-compatible provider
 
 ### Install
@@ -79,6 +66,15 @@ export OPENAI_API_KEY=sk-...
 export OPENAI_BASE_URL=https://your-gateway.example.com/v1
 ```
 
+Local LM Studio setup (OpenAI-compatible):
+
+```bash
+export CC_MINI_PROVIDER=lmstudio
+# Defaults:
+# LMSTUDIO_BASE_URL=http://localhost:1234/v1
+# LMSTUDIO_API_KEY=lm-studio
+```
+
 ### Run
 
 ```bash
@@ -89,6 +85,18 @@ cc-mini --auto-approve               # Skip permission prompts
 cc-mini --resume 1                   # Resume previous session
 cc-mini --coordinator                # Coordinator mode
 ```
+
+### Docker
+
+The repo includes a reusable Python 3.9 image plus a compose service configured for LM Studio on the Docker host by default.
+
+```bash
+make build
+make test
+make run
+```
+
+The default container LM Studio endpoint is `http://host.docker.internal:1234/v1`, which is the right hostname when LM Studio runs on your local Windows machine and `cc-mini` runs in Docker. See [README_LMS.md](README_LMS.md) for the full setup.
 
 ### First Session Demo
 
@@ -102,16 +110,6 @@ Found 12 Python files...
 > read engine.py and explain the tool loop
 ↳ Read(src/core/engine.py) ✓
 The submit() method implements an agentic loop...
-
-> /buddy
-Hatching your companion...
-✨ SHINY LEGENDARY DUCK
-Glitch Quack hatched! ★★★★★
-
-> /buddy mood
-Glitch Quack's mood:
-  Happy      ████████████████░░░░  65 (high)
-  Bored      ██████████░░░░░░░░░░  50 (neutral)
 
 > /review
 Running skill: /review…
@@ -150,7 +148,6 @@ Coordinator mode adds: `Agent` (spawn worker), `SendMessage` (continue worker), 
 | Memory (KAIROS) | `~/.config/cc-mini/memory/` |
 | Plans | `~/.config/cc-mini/plans/` |
 | REPL history | `~/.config/cc-mini/history` |
-| Companion data | `~/.config/cc-mini/companion.json` |
 | User skills | `~/.cc-mini/skills/` |
 | Project skills | `{cwd}/.cc-mini/skills/` |
 | Project config | `.cc-mini.toml` |
@@ -167,8 +164,6 @@ Coordinator mode adds: `Agent` (spawn worker), `SendMessage` (continue worker), 
 | `/history` | List saved sessions |
 | `/clear` | Clear conversation, start new session |
 | `/skills` | List all available skills |
-| `/buddy` | Companion pet — hatch, pet, stats, mood |
-| `/buddy help` | Show all buddy commands and gameplay guide |
 | `/review` | Code review (skill) |
 | `/commit` | Git commit (skill) |
 | `/test` | Run tests (skill) |
@@ -222,8 +217,7 @@ src/
 │   ├── shell.py           # Shell integration
 │   └── keylistener.py     # Esc/Ctrl+C detection
 │
-├── commands/              # Slash command handlers
-└── buddy/                 # AI companion pet system
+└── commands/              # Slash command handlers
 ```
 
 ## Running Tests
@@ -240,7 +234,6 @@ pytest tests/ -v -k "not integration"  # skip bwrap tests
 | Topic | Link |
 |-------|------|
 | Configuration (API keys, TOML, CLI flags) | [docs/configuration.md](docs/configuration.md) |
-| Buddy (AI companion pet) | [docs/buddy.md](docs/buddy.md) |
 | Coordinator Mode (background workers) | [docs/coordinator.md](docs/coordinator.md) |
 | KAIROS Memory System | [docs/memory.md](docs/memory.md) |
 | Skills (custom workflows) | [docs/skills.md](docs/skills.md) |

@@ -17,7 +17,7 @@ else:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass
@@ -175,7 +175,7 @@ def _replace_sandbox_section(original: str, new_section: str) -> str:
 
     lines = original.splitlines(keepends=True)
     kept: list[str] = []
-    insert_pos: int | None = None
+    insert_pos: Optional[int] = None
     in_sandbox = False
 
     for line in lines:
