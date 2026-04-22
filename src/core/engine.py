@@ -3,6 +3,8 @@ import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Empty, Queue
+import threading
 from typing import TYPE_CHECKING, Any, Iterator, Optional, Union
 from .config import DEFAULT_MODEL, default_max_tokens_for_model, resolve_model
 from .llm import LLMClient
@@ -67,7 +69,9 @@ class Engine:
                  base_url: Optional[str] = None,
                  effort: Optional[str] = None,
                  session_store: Optional[SessionStore] = None,
-                 cost_tracker: Optional[CostTracker] = None):
+                 cost_tracker: Optional[CostTracker] = None,
+                 allow_langchain_fallback: bool = False,
+                 debug_langchain_fallback: bool = False):
         self._provider = provider
         self._model = resolve_model(model, provider=provider)
         self._max_tokens = max_tokens or default_max_tokens_for_model(
@@ -89,6 +93,8 @@ class Engine:
         self._active_stream = None  # reference to current HTTP stream
         self._session_store = session_store
         self._cost_tracker = cost_tracker
+        self._allow_langchain_fallback = allow_langchain_fallback
+        self._debug_langchain_fallback = debug_langchain_fallback
         self._used_langchain_fallback = False
 
     # -- message accessors (for compact / resume / commands) ----------------
@@ -209,6 +215,12 @@ class Engine:
         self._persist(self._messages[-1])
 
         try:
+            if self._allow_langchain_fallback and self._tools:
+                self._used_langchain_fallback = True
+                for event in self._run_langchain_fallback():
+                    yield event
+                return
+
             while True:
                 if self._aborted:
                     raise AbortedError()
@@ -266,6 +278,8 @@ class Engine:
                             yield ("error", f"Authentication failed: {self._client.error_message(e)}")
                             return
                         if (
+                            self._allow_langchain_fallback
+                            and
                             not self._used_langchain_fallback
                             and self._client.should_use_langchain_tool_fallback(e)
                         ):
@@ -427,43 +441,88 @@ class Engine:
             raise
 
     def _run_langchain_fallback(self) -> Iterator[tuple]:
-        recorded_events: list[tuple] = []
+        requests: Queue[dict[str, Any]] = Queue()
+        results: Queue[dict[str, Any]] = Queue()
 
         def _build_spec(tool: Tool) -> LangChainToolSpec:
             def _invoke(tool_input: dict[str, Any]) -> str:
+                response_queue: Queue[ToolResult] = Queue(maxsize=1)
+                requests.put({
+                    "tool": tool,
+                    "tool_input": tool_input,
+                    "response_queue": response_queue,
+                })
+                result = response_queue.get()
+                if result.is_error:
+                    return result.content
+                return result.content
+
+            return LangChainToolSpec(tool, _invoke)
+
+        def _run_agent() -> None:
+            try:
+                text = run_langchain_agent(
+                    model=self._model,
+                    api_key=self._client._api_key,
+                    base_url=self._client._base_url,
+                    system_prompt=self._system_prompt,
+                    messages=self._messages,
+                    tool_specs=[_build_spec(tool) for tool in self._tools.values()],
+                    debug=self._debug_langchain_fallback,
+                )
+                results.put({"type": "done", "text": text})
+            except Exception as exc:
+                results.put({"type": "error", "error": exc})
+
+        worker = threading.Thread(target=_run_agent, daemon=True)
+        worker.start()
+
+        started_at = time.monotonic()
+        text = ""
+        while True:
+            if self._aborted:
+                raise AbortedError()
+
+            try:
+                message = results.get(timeout=0.05)
+            except Empty:
+                message = None
+
+            if message is not None:
+                if message["type"] == "error":
+                    raise message["error"]
+                text = str(message["text"])
+                break
+
+            while not requests.empty():
+                request = requests.get()
+                tool = request["tool"]
+                tool_input = request["tool_input"]
+                response_queue = request["response_queue"]
                 activity = tool.get_activity_description(**tool_input)
-                recorded_events.append(("tool_call", tool.name, tool_input, activity))
+                yield ("tool_call", tool.name, tool_input, activity)
                 if self._permissions.check(tool, tool_input) == "deny":
                     result = ToolResult(content="Permission denied.", is_error=True)
                 else:
-                    recorded_events.append(("tool_executing", tool.name, tool_input, activity))
-                    result = tool.execute(**tool_input)
-                recorded_events.append(("tool_result", tool.name, tool_input, result))
-                return result.content
+                    yield ("tool_executing", tool.name, tool_input, activity)
+                    try:
+                        result = tool.execute(**tool_input)
+                    except Exception as exc:
+                        result = ToolResult(content=f"Tool error: {exc}", is_error=True)
+                yield ("tool_result", tool.name, tool_input, result)
+                response_queue.put(result)
 
-            return LangChainToolSpec(
-                name=tool.name,
-                description=tool.description,
-                input_schema=tool.input_schema,
-                invoke=_invoke,
+        if self._cost_tracker is not None:
+            self._cost_tracker.add_unpriced_call(
+                self._model,
+                api_duration_s=time.monotonic() - started_at,
             )
-
-        text = run_langchain_agent(
-            model=self._model,
-            api_key=self._client._api_key,
-            base_url=self._client._base_url,
-            system_prompt=self._system_prompt,
-            messages=self._messages,
-            tool_specs=[_build_spec(tool) for tool in self._tools.values()],
-        )
         assistant_message = {
             "role": "assistant",
             "content": [{"type": "text", "text": text}],
         }
         self._messages.append(assistant_message)
         self._persist(assistant_message)
-        for event in recorded_events:
-            yield event
         if text:
             yield ("text", text)
 

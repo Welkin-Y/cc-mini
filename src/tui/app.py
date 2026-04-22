@@ -158,6 +158,10 @@ def main() -> None:
                         help="Minimum new sessions before auto-dream triggers (default: 5)")
     parser.add_argument("--coordinator", action="store_true",
                         help="Enable coordinator mode with background workers")
+    parser.add_argument("--langchain-fallback", action="store_true",
+                        help="Use LangChain tools for providers that do not support native tool calls")
+    parser.add_argument("--langchain-debug", action="store_true",
+                        help="Print per-step LangChain fallback debug logs to stderr")
     args = parser.parse_args()
 
     try:
@@ -233,6 +237,7 @@ def main() -> None:
             model=_current_model(),
             max_tokens=app_config.max_tokens,
             effort=app_config.effort,
+            debug_langchain_fallback=args.langchain_debug,
         )
 
     def _build_plan_worker_engine() -> Engine:
@@ -257,6 +262,8 @@ def main() -> None:
             model=_current_model(),
             max_tokens=app_config.max_tokens,
             effort=app_config.effort,
+            allow_langchain_fallback=args.langchain_fallback,
+            debug_langchain_fallback=args.langchain_debug,
         )
 
     worker_manager = WorkerManager(build_worker_engine=_build_worker_engine)
@@ -305,6 +312,8 @@ def main() -> None:
         effort=app_config.effort,
         session_store=session_store,
         cost_tracker=cost_tracker,
+        allow_langchain_fallback=args.langchain_fallback,
+        debug_langchain_fallback=args.langchain_debug,
     )
     current_model[0] = engine.get_model()
     plan_manager.bind_engine(engine, build_plan_worker_engine=_build_plan_worker_engine)

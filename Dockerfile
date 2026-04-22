@@ -20,6 +20,6 @@ COPY assets ./assets
 COPY install.sh ./install.sh
 COPY notebooks ./notebooks
 
-RUN pip install -e ".[dev,notebook]"
+RUN pip install -e ".[dev,notebook,langchain]"
 
 CMD ["cc-mini"]

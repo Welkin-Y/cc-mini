@@ -81,6 +81,7 @@ export CC_MINI_PROVIDER=lmstudio
 cc-mini                              # Interactive REPL
 cc-mini "what tests exist?"          # One-shot prompt
 cc-mini -p "summarize this codebase" # Print and exit
+cc-mini --langchain-fallback         # Use LangChain tools for models without native tool calls
 cc-mini --auto-approve               # Skip permission prompts
 cc-mini --resume 1                   # Resume previous session
 cc-mini --coordinator                # Coordinator mode
@@ -131,7 +132,9 @@ For OpenAI-compatible providers that reject native `tool_calls`, install the Lan
 pip install -e ".[dev,langchain]"
 ```
 
-When the provider returns a tool-calling API error, `cc-mini` will fall back to a LangChain ReAct-style tool loop instead of failing immediately.
+Use `--langchain-fallback` when the base model does not support native tool calls.
+This routes tool-using turns, including bundled and custom skills, through a LangChain ReAct-style tool loop instead of attempting native tool calls first.
+The Docker image includes this extra by default.
 
 ### First Session Demo
 

@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 notebook = ["ipywidgets>=8.0", "jupyterlab>=4.0", "ipykernel>=6.0"]
-langchain = ["langchain>=0.3", "langchain-community>=0.3"]
+langchain = ["langchain==0.1.20"]
 
 [project.scripts]
 cc-mini = "tui.app:main"

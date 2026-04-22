@@ -86,6 +86,7 @@ class ModelUsage:
     cost_usd: float = 0.0
     api_duration_s: float = 0.0
     pricing_known: bool = True
+    usage_known: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +187,14 @@ class CostTracker:
         self._lines_added += added
         self._lines_removed += removed
 
+    def add_unpriced_call(self, model: str, api_duration_s: float = 0.0) -> None:
+        """Record an API call when token usage/pricing is unavailable."""
+        self._total_api_duration_s += api_duration_s
+        mu = self._model_usage.setdefault(model, ModelUsage())
+        mu.api_duration_s += api_duration_s
+        mu.pricing_known = False
+        mu.usage_known = False
+
     def format_cost(self) -> str:
         """Human-readable cost summary matching official Claude Code format."""
         if not self._model_usage:
@@ -193,10 +202,13 @@ class CostTracker:
 
         wall_s = time.monotonic() - self._wall_start
         unknown_pricing = any(not mu.pricing_known for mu in self._model_usage.values())
+        unknown_usage = any(not mu.usage_known for mu in self._model_usage.values())
         lines: list[str] = []
         lines.append(f"Total cost:            ${self._total_cost_usd:.2f}")
         if unknown_pricing:
             lines.append("Pricing note:          Costs may be incomplete for unknown or local OpenAI-compatible models")
+        if unknown_usage:
+            lines.append("Usage note:            Token counts may be unavailable for fallback or local model calls")
         lines.append(f"Total duration (API):  {_fmt_duration(self._total_api_duration_s)}")
         lines.append(f"Total duration (wall): {_fmt_duration(wall_s)}")
         la = self._lines_added
@@ -213,12 +225,15 @@ class CostTracker:
         max_name = max(len(m) for m in self._model_usage)
         for model, mu in sorted(self._model_usage.items()):
             parts: list[str] = []
-            parts.append(f"{_fmt_tokens(mu.input_tokens)} input")
-            parts.append(f"{_fmt_tokens(mu.output_tokens)} output")
-            if mu.cache_read_input_tokens:
-                parts.append(f"{_fmt_tokens(mu.cache_read_input_tokens)} cache read")
-            if mu.cache_creation_input_tokens:
-                parts.append(f"{_fmt_tokens(mu.cache_creation_input_tokens)} cache write")
+            if mu.usage_known:
+                parts.append(f"{_fmt_tokens(mu.input_tokens)} input")
+                parts.append(f"{_fmt_tokens(mu.output_tokens)} output")
+                if mu.cache_read_input_tokens:
+                    parts.append(f"{_fmt_tokens(mu.cache_read_input_tokens)} cache read")
+                if mu.cache_creation_input_tokens:
+                    parts.append(f"{_fmt_tokens(mu.cache_creation_input_tokens)} cache write")
+            else:
+                parts.append("token usage unavailable")
             detail = ", ".join(parts)
             if not mu.pricing_known:
                 detail += ", pricing unavailable"

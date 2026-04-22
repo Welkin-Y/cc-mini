@@ -198,3 +198,15 @@ def test_format_cost_warns_for_local_models():
     output = tracker.format_cost()
     assert "Pricing note:" in output
     assert "local OpenAI-compatible models" in output
+
+
+def test_format_cost_shows_unpriced_fallback_calls():
+    tracker = CostTracker()
+    tracker.add_unpriced_call("local-model", api_duration_s=2.0)
+
+    output = tracker.format_cost()
+
+    assert "Usage note:" in output
+    assert "token usage unavailable" in output
+    assert "pricing unavailable" in output
+    assert "Total duration (API):  2s" in output
