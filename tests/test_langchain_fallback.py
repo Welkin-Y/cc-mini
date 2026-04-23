@@ -1,4 +1,5 @@
 import json
+import importlib.util
 
 import httpx
 import pytest
@@ -7,6 +8,7 @@ from core.tool import Tool, ToolResult
 from features.langchain_fallback import (
     LangChainFallbackUnavailable,
     LangChainToolSpec,
+    _ITERATION_LIMIT_MESSAGE,
     _accept_repeated_non_action_summary,
     _extract_fallback_final_answer,
     _parse_tool_input,
@@ -15,6 +17,11 @@ from features.langchain_fallback import (
     run_langchain_agent,
     should_fallback_from_error_message,
 )
+
+
+def _require_langchain():
+    if importlib.util.find_spec("langchain") is None:
+        pytest.skip("langchain is not installed in this test environment")
 
 
 class _FakeTool(Tool):
@@ -108,6 +115,20 @@ def test_parse_tool_input_rejects_non_json_for_multi_required_tool():
         _parse_tool_input(tool, "not-json")
 
 
+def test_parse_tool_input_accepts_json_object_with_trailing_narration():
+    tool = _FakeTool()
+
+    raw = (
+        '{"file_path":"/workspace/notebooks/minesweeper/main.py","content":"print(\\"hi\\")"}'
+        "<channel|>The file was created successfully."
+    )
+
+    assert _parse_tool_input(tool, raw) == {
+        "file_path": "/workspace/notebooks/minesweeper/main.py",
+        "content": 'print("hi")',
+    }
+
+
 def test_extract_fallback_final_answer_accepts_json_and_plain_text():
     assert _extract_fallback_final_answer('{"type":"assistant","content":"done"}') == "done"
     assert _extract_fallback_final_answer('{"final_answer":"done"}') == "done"
@@ -150,6 +171,7 @@ def test_wrap_react_tool_parses_json_before_invoking():
 
 
 def test_run_langchain_agent_uses_react_agent_over_raw_http(monkeypatch):
+    _require_langchain()
     requests = []
     client_cls = httpx.Client
 
@@ -241,6 +263,7 @@ def test_run_langchain_agent_uses_react_agent_over_raw_http(monkeypatch):
 
 
 def test_run_langchain_agent_treats_initial_non_react_reply_as_final_answer(monkeypatch):
+    _require_langchain()
     requests = []
     client_cls = httpx.Client
     transport = httpx.MockTransport(
@@ -266,6 +289,7 @@ def test_run_langchain_agent_treats_initial_non_react_reply_as_final_answer(monk
 
 
 def test_run_langchain_agent_accepts_plain_text_final_reply(monkeypatch):
+    _require_langchain()
     client_cls = httpx.Client
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -298,6 +322,7 @@ def test_run_langchain_agent_accepts_plain_text_final_reply(monkeypatch):
 
 
 def test_run_langchain_agent_accepts_json_final_reply(monkeypatch):
+    _require_langchain()
     client_cls = httpx.Client
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -330,6 +355,7 @@ def test_run_langchain_agent_accepts_json_final_reply(monkeypatch):
 
 
 def test_run_langchain_agent_debug_logs_model_outputs_and_final_acceptance(monkeypatch, capsys):
+    _require_langchain()
     client_cls = httpx.Client
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
@@ -366,6 +392,7 @@ def test_run_langchain_agent_debug_logs_model_outputs_and_final_acceptance(monke
 
 
 def test_run_langchain_agent_does_not_accept_plain_text_after_tool_use(monkeypatch):
+    _require_langchain()
     requests = []
     client_cls = httpx.Client
 
@@ -439,6 +466,7 @@ def test_run_langchain_agent_does_not_accept_plain_text_after_tool_use(monkeypat
 
 
 def test_run_langchain_agent_accepts_repeated_summary_after_tool_use(monkeypatch):
+    _require_langchain()
     requests = []
     client_cls = httpx.Client
 
@@ -493,6 +521,84 @@ def test_run_langchain_agent_accepts_repeated_summary_after_tool_use(monkeypatch
 
     assert result.startswith("**Execution Summary:**")
     assert len(requests) == 2
+
+
+def test_run_langchain_agent_rejects_iteration_limit_text_in_coordinator_mode():
+    calls = []
+
+    def _fake_once(**kwargs):
+        calls.append(kwargs)
+        return _ITERATION_LIMIT_MESSAGE
+
+    with pytest.raises(
+        LangChainFallbackUnavailable,
+        match="exhausted in coordinator mode",
+    ):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("features.langchain_fallback._run_langchain_agent_once", _fake_once)
+            run_langchain_agent(
+                model="local-model",
+                api_key="lm-studio",
+                base_url="http://localhost:1234/v1",
+                system_prompt="You are helpful.",
+                messages=[{"role": "user", "content": "summarize the repo"}],
+                tool_specs=[],
+                coordinator_mode=True,
+            )
+
+    assert len(calls) == 2
+    assert calls[0]["retrying"] is False
+    assert calls[1]["retrying"] is True
+
+
+def test_run_langchain_agent_retries_once_and_returns_second_answer_in_coordinator_mode():
+    calls = []
+
+    def _fake_once(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _ITERATION_LIMIT_MESSAGE
+        return "fixed final answer"
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("features.langchain_fallback._run_langchain_agent_once", _fake_once)
+        result = run_langchain_agent(
+            model="local-model",
+            api_key="lm-studio",
+            base_url="http://localhost:1234/v1",
+            system_prompt="You are helpful.",
+            messages=[{"role": "user", "content": "summarize the repo"}],
+            tool_specs=[],
+            coordinator_mode=True,
+        )
+
+    assert result == "fixed final answer"
+    assert len(calls) == 2
+    assert calls[0]["retrying"] is False
+    assert calls[1]["retrying"] is True
+
+
+def test_run_langchain_agent_does_not_retry_iteration_limit_in_normal_mode():
+    calls = []
+
+    def _fake_once(**kwargs):
+        calls.append(kwargs)
+        return _ITERATION_LIMIT_MESSAGE
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("features.langchain_fallback._run_langchain_agent_once", _fake_once)
+        result = run_langchain_agent(
+            model="local-model",
+            api_key="lm-studio",
+            base_url="http://localhost:1234/v1",
+            system_prompt="You are helpful.",
+            messages=[{"role": "user", "content": "summarize the repo"}],
+            tool_specs=[],
+            coordinator_mode=False,
+        )
+
+    assert result == _ITERATION_LIMIT_MESSAGE
+    assert len(calls) == 1
 
 
 def _react_retry_handler(requests, request):

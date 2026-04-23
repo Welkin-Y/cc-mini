@@ -18,12 +18,14 @@ class EchoTool(Tool):
         return ToolResult(content=f"Echo: {message}")
 
 
-def _make_engine(auto_approve=True, allow_langchain_fallback=False):
+def _make_engine(auto_approve=True, allow_langchain_fallback=False, coordinator_mode=False):
     return Engine(
         tools=[EchoTool()],
         system_prompt="You are a test assistant.",
         permission_checker=PermissionChecker(auto_approve=auto_approve),
+        provider="lmstudio",
         allow_langchain_fallback=allow_langchain_fallback,
+        coordinator_mode=coordinator_mode,
     )
 
 
@@ -118,14 +120,15 @@ def test_engine_uses_model_specific_default_max_tokens():
         tools=[EchoTool()],
         system_prompt="You are a test assistant.",
         permission_checker=PermissionChecker(auto_approve=True),
-        model="claude-sonnet-4",
+        provider="lmstudio",
+        model="local-model",
     )
 
     with patch.object(engine._client, "stream_messages", return_value=_make_text_response("hello")) as stream:
         list(engine.submit("hi"))
 
-    assert stream.call_args.kwargs["model"] == "claude-sonnet-4"
-    assert stream.call_args.kwargs["max_tokens"] == default_max_tokens_for_model("claude-sonnet-4")
+    assert stream.call_args.kwargs["model"] == "local-model"
+    assert stream.call_args.kwargs["max_tokens"] == default_max_tokens_for_model("local-model")
 
 
 def test_engine_normalizes_assistant_tool_use_blocks_before_retrying():
@@ -226,3 +229,18 @@ def test_engine_fallback_emits_tool_call_before_permission_check():
     assert seen[0] == ("invoke_start",)
     assert seen[1] == ("prompt", "Echo", {"message": "fallback"})
     assert seen[2] == ("invoke_result", "Permission denied.")
+
+
+def test_engine_passes_coordinator_mode_to_langchain_fallback():
+    engine = _make_engine(allow_langchain_fallback=True, coordinator_mode=True)
+
+    def _fake_run_langchain_agent(**kwargs):
+        assert kwargs["coordinator_mode"] is True
+        return "fallback done"
+
+    with patch.object(engine._client, "stream_messages") as stream_messages:
+        with patch("core.engine.run_langchain_agent", side_effect=_fake_run_langchain_agent):
+            events = list(engine.submit("use fallback"))
+
+    stream_messages.assert_not_called()
+    assert any(event == ("text", "fallback done") for event in events)

@@ -81,7 +81,32 @@ _REACT_PARSE_REPAIR_MESSAGE = (
     "If done, emit `Final Answer:`. "
     "Do not emit `Summary:` or plain prose after a tool result."
 )
+_COORDINATOR_REACT_PARSE_REPAIR_MESSAGE = (
+    "Your previous reply could not be parsed. "
+    "You are replying inside a coordinator/worker pipeline. "
+    "Respond in exact ReAct format only. "
+    "After any `Observation`, your next reply must be either a valid `Action:` block "
+    "or `Final Answer:`. "
+    "Do not emit summaries, explanations, or partial prose."
+)
+_COORDINATOR_PROMPT_INSTRUCTION = """
+
+Coordinator mode rules:
+- Your reply will be consumed by a coordinator/worker pipeline.
+- After any `Observation`, your next reply must be either another valid `Action:` block or `Final Answer:`.
+- Do not emit narrative summaries, status updates, or partial prose after tool use.
+- If you are done, emit `Final Answer:` immediately.
+"""
+_COORDINATOR_RETRY_INSTRUCTION = """
+
+Coordinator termination repair:
+- Your reply is being consumed by a coordinator/worker pipeline.
+- After any `Observation`, you must either emit another valid `Action:` block or `Final Answer:`.
+- Do not emit narrative summaries, status updates, or partial prose.
+- If the task cannot be completed with the available tools and context, emit `Final Answer:` with a short failure explanation.
+"""
 _DEFAULT_MAX_ITERATIONS = 20
+_ITERATION_LIMIT_MESSAGE = "Agent stopped due to iteration limit or time limit."
 
 
 def should_fallback_from_error_message(message: str) -> bool:
@@ -98,11 +123,48 @@ def run_langchain_agent(
     messages: list[dict[str, Any]],
     tool_specs: list[LangChainToolSpec],
     debug: bool = False,
+    coordinator_mode: bool = False,
 ) -> str:
     if not base_url:
         raise LangChainFallbackUnavailable(
             "Fallback requires a reachable OpenAI-compatible base URL."
         )
+
+    attempts = 2 if coordinator_mode else 1
+    for attempt in range(attempts):
+        is_retry = attempt > 0
+        text = _run_langchain_agent_once(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            system_prompt=system_prompt,
+            messages=messages,
+            tool_specs=tool_specs,
+            debug=debug,
+            coordinator_mode=coordinator_mode,
+            retrying=is_retry,
+        )
+        if not (coordinator_mode and _is_iteration_limit_result(text)):
+            return text
+        _debug_log(debug, f"iteration_limit attempt={attempt + 1}")
+
+    raise LangChainFallbackUnavailable(
+        "LangChain fallback exhausted in coordinator mode after hitting the iteration limit twice."
+    )
+
+
+def _run_langchain_agent_once(
+    *,
+    model: str,
+    api_key: Optional[str],
+    base_url: Optional[str],
+    system_prompt: str,
+    messages: list[dict[str, Any]],
+    tool_specs: list[LangChainToolSpec],
+    debug: bool = False,
+    coordinator_mode: bool = False,
+    retrying: bool = False,
+) -> str:
 
     try:
         from langchain.agents import AgentExecutor, create_react_agent
@@ -186,6 +248,12 @@ def run_langchain_agent(
                     allow_plain_text=(tool_call_counter["value"] == 0),
                 )
                 if final_text is not None:
+                    if coordinator_mode and _is_iteration_limit_result(final_text):
+                        _debug_log(
+                            debug,
+                            f"step={step_counter['value']} rejected_iteration_limit",
+                        )
+                        raise
                     _debug_log(
                         debug,
                         f"step={step_counter['value']} accepted_final={_truncate_debug(final_text)}",
@@ -194,7 +262,9 @@ def run_langchain_agent(
                 repeated_final = _accept_repeated_non_action_summary(
                     stripped,
                     retry_state=retry_state,
-                    allow_repeat_accept=(tool_call_counter["value"] > 0),
+                    allow_repeat_accept=(
+                        tool_call_counter["value"] > 0 and not coordinator_mode
+                    ),
                 )
                 if repeated_final is not None:
                     _debug_log(
@@ -208,7 +278,12 @@ def run_langchain_agent(
                 )
                 raise
 
-    prompt = PromptTemplate.from_template(_REACT_PROMPT_TEMPLATE)
+    prompt = PromptTemplate.from_template(
+        _build_react_prompt_template(
+            coordinator_mode=coordinator_mode,
+            retrying=retrying,
+        )
+    )
     agent_tools = [
         LangChainTool.from_function(
             func=_wrap_react_tool(spec, tool_call_counter=tool_call_counter, debug=debug),
@@ -227,7 +302,11 @@ def run_langchain_agent(
         agent=agent,
         tools=agent_tools,
         verbose=False,
-        handle_parsing_errors=_REACT_PARSE_REPAIR_MESSAGE,
+        handle_parsing_errors=(
+            _COORDINATOR_REACT_PARSE_REPAIR_MESSAGE
+            if coordinator_mode
+            else _REACT_PARSE_REPAIR_MESSAGE
+        ),
         max_iterations=_DEFAULT_MAX_ITERATIONS,
     )
     result = executor.invoke({
@@ -238,6 +317,19 @@ def run_langchain_agent(
         output = result.get("output", "")
         return output if isinstance(output, str) else str(output)
     return str(result)
+
+
+def _build_react_prompt_template(*, coordinator_mode: bool, retrying: bool) -> str:
+    if not coordinator_mode:
+        return _REACT_PROMPT_TEMPLATE
+    extra = _COORDINATOR_PROMPT_INSTRUCTION
+    if retrying:
+        extra += _COORDINATOR_RETRY_INSTRUCTION
+    return _REACT_PROMPT_TEMPLATE + extra
+
+
+def _is_iteration_limit_result(text: str) -> bool:
+    return text.strip() == _ITERATION_LIMIT_MESSAGE
 
 
 def _chat_completions_url(base_url: str) -> str:
@@ -326,6 +418,12 @@ def _parse_tool_input(tool: Tool, raw_input: Any) -> dict[str, Any]:
         parsed = json.loads(text)
     except json.JSONDecodeError:
         parsed = None
+        extracted = _extract_leading_json_object(text)
+        if extracted is not None:
+            try:
+                parsed = json.loads(extracted)
+            except json.JSONDecodeError:
+                parsed = None
 
     if isinstance(parsed, dict):
         return parsed
@@ -340,6 +438,40 @@ def _parse_tool_input(tool: Tool, raw_input: Any) -> dict[str, Any]:
     raise LangChainFallbackUnavailable(
         f"Tool {tool.name} requires JSON object input, got: {raw_input}"
     )
+
+
+def _extract_leading_json_object(text: str) -> Optional[str]:
+    if not text.startswith("{"):
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[: index + 1]
+            if depth < 0:
+                return None
+
+    return None
 
 
 def _extract_fallback_final_answer(text: str, *, allow_plain_text: bool = True) -> Optional[str]:

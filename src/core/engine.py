@@ -71,7 +71,8 @@ class Engine:
                  session_store: Optional[SessionStore] = None,
                  cost_tracker: Optional[CostTracker] = None,
                  allow_langchain_fallback: bool = False,
-                 debug_langchain_fallback: bool = False):
+                 debug_langchain_fallback: bool = False,
+                 coordinator_mode: bool = False):
         self._provider = provider
         self._model = resolve_model(model, provider=provider)
         self._max_tokens = max_tokens or default_max_tokens_for_model(
@@ -95,6 +96,7 @@ class Engine:
         self._cost_tracker = cost_tracker
         self._allow_langchain_fallback = allow_langchain_fallback
         self._debug_langchain_fallback = debug_langchain_fallback
+        self._coordinator_mode = coordinator_mode
         self._used_langchain_fallback = False
 
     # -- message accessors (for compact / resume / commands) ----------------
@@ -469,6 +471,7 @@ class Engine:
                     messages=self._messages,
                     tool_specs=[_build_spec(tool) for tool in self._tools.values()],
                     debug=self._debug_langchain_fallback,
+                    coordinator_mode=self._coordinator_mode,
                 )
                 results.put({"type": "done", "text": text})
             except Exception as exc:

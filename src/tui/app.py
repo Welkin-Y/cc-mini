@@ -55,6 +55,7 @@ from features.memory import (
 from features.skills import discover_skills, list_skills, build_skills_prompt_section
 from features.skills_bundled import register_bundled_skills
 from commands import parse_command, handle_command, CommandContext
+from commands.ui import RichCommandUI
 from tui.prompt import bordered_prompt, slash_completer
 from tui.query import run_query
 from tui.input_parser import parse_input
@@ -138,7 +139,7 @@ def main() -> None:
     parser.add_argument("--auto-approve", action="store_true",
                         help="Auto-approve all tool permissions (dangerous)")
     parser.add_argument("--config", help="Path to a TOML config file")
-    parser.add_argument("--provider", choices=("anthropic", "openai", "lmstudio"),
+    parser.add_argument("--provider", choices=("lmstudio",),
                         help="API provider / wire format")
     parser.add_argument("--api-key", help="API key for the selected provider")
     parser.add_argument("--base-url", help="Custom API base URL for the selected provider")
@@ -237,7 +238,9 @@ def main() -> None:
             model=_current_model(),
             max_tokens=app_config.max_tokens,
             effort=app_config.effort,
+            allow_langchain_fallback=args.langchain_fallback,
             debug_langchain_fallback=args.langchain_debug,
+            coordinator_mode=is_coordinator_mode(),
         )
 
     def _build_plan_worker_engine() -> Engine:
@@ -264,6 +267,7 @@ def main() -> None:
             effort=app_config.effort,
             allow_langchain_fallback=args.langchain_fallback,
             debug_langchain_fallback=args.langchain_debug,
+            coordinator_mode=is_coordinator_mode(),
         )
 
     worker_manager = WorkerManager(build_worker_engine=_build_worker_engine)
@@ -314,6 +318,7 @@ def main() -> None:
         cost_tracker=cost_tracker,
         allow_langchain_fallback=args.langchain_fallback,
         debug_langchain_fallback=args.langchain_debug,
+        coordinator_mode=coordinator_enabled,
     )
     current_model[0] = engine.get_model()
     plan_manager.bind_engine(engine, build_plan_worker_engine=_build_plan_worker_engine)
@@ -518,7 +523,7 @@ def main() -> None:
                 engine=engine,
                 session_store=session_store,
                 compact_service=compact_service,
-                console=console,
+                ui=RichCommandUI(console),
                 app_config=app_config,
                 memory_dir=memory_dir,
                 permissions=permissions,
