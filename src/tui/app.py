@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +13,7 @@ from rich.console import Console
 
 from core.config import load_app_config
 from core.context import build_system_prompt
-from core.engine import AbortedError, Engine
+from core.engine import Engine
 from tools import AskUserQuestionTool
 from tools import AgentTool, SendMessageTool, TaskStopTool
 from tools import BashTool
@@ -37,7 +36,6 @@ from features.cost_tracker import CostTracker
 from features.todo import TodoManager
 from core.session import SessionStore
 from features.compact import CompactService, estimate_tokens, should_compact
-from tui.keylistener import EscListener
 from core.permissions import PermissionChecker
 from features.agents import WorkerManager, EXPLORE_SYSTEM_PROMPT
 from features.sandbox.config import load_sandbox_config
@@ -56,16 +54,14 @@ from features.memory import (
 from features.skills import discover_skills, list_skills, build_skills_prompt_section
 from features.skills_bundled import register_bundled_skills
 from commands import parse_command, handle_command, CommandContext
-from tui.prompt import bordered_prompt, slash_completer
 from tui.query import run_query
 from tui.input_parser import parse_input
-from tui.shell import run_shell, handle_sandbox_command
+from tui.async_app import AsyncREPL
+from tui.shell import handle_sandbox_command
 
 console = Console()
 _HISTORY_FILE = Path.home() / ".config" / "cc-mini" / "history"
 
-# Match claude-code-main: useDoublePress DOUBLE_PRESS_TIMEOUT_MS = 800
-_DOUBLE_PRESS_TIMEOUT_MS = 0.8
 
 
 def _run_dream(engine: Engine, memory_dir: Path,
@@ -361,12 +357,6 @@ def main() -> None:
 
     _file_history = FileHistory(str(_HISTORY_FILE))
 
-    # Track last Ctrl+C time for double-press exit (matches useDoublePress)
-    last_ctrlc_time = 0.0
-
-    # Terminal mode state — shared mutable ref toggled by "!" key binding
-    _terminal_mode_ref = [False]
-
     # Companion animator — drives real-time idle animation in bottom_toolbar
     # Matches CompanionSprite.tsx tick-based animation system
     animator = None
@@ -462,97 +452,61 @@ def main() -> None:
                 f"{uses} tool use{'s' if uses != 1 else ''} · {activity}[/dim]"
             )
 
-    while True:
-        _drain_worker_notifications()
-        _show_worker_status()
+    # -- Async REPL: persistent non-blocking prompt + message queueing ---
 
-        # Start/restart animator before each prompt (picks up newly hatched companions)
-        if animator is None:
-            try:
-                from buddy.companion import get_companion
-                from buddy.storage import load_companion_muted
-                from buddy.animator import CompanionAnimator
-                if not load_companion_muted():
-                    comp = get_companion()
-                    if comp:
-                        animator = CompanionAnimator(comp)
-            except Exception:
-                pass
+    # Show initial worker status
+    _show_worker_status()
 
+    # Shared reference so companion observer callback can update animator
+    _animator_ref = [animator]
+
+    def _capture_console(fn) -> str:
+        """Capture rich console output from a callable, return as string."""
+        from io import StringIO
+        buf = StringIO()
         try:
-            if animator:
-                animator.start()
-            console.print()
-            _terminal_mode_ref[0] = False  # always start in chat mode
-            user_input = bordered_prompt(
-                console,
-                history=_file_history,
-                completer=slash_completer,
-                animator_toolbar=animator.toolbar_text if animator else None,
-                refresh_interval=0.5 if animator else None,
-                terminal_mode_ref=_terminal_mode_ref,
-            ).strip()
-        except KeyboardInterrupt:
-            now = time.monotonic()
-            if now - last_ctrlc_time <= _DOUBLE_PRESS_TIMEOUT_MS:
-                _exiting = True
-                if animator:
-                    animator.stop()
-                console.print("\n[dim]Goodbye.[/dim]")
-                break
-            last_ctrlc_time = now
-            console.print("\n[dim yellow]Press Ctrl+C again to exit[/dim yellow]")
-            continue
-        except EOFError:
-            if animator:
-                animator.stop()
-            console.print("\n[dim]Goodbye.[/dim]")
-            break
-        finally:
-            if animator:
-                animator.stop()
+            old_file = console.file
+            console.file = buf
+            fn()
+            console.file = old_file
+        except Exception:
+            pass
+        return buf.getvalue()
 
-        # Reset double-press timer on any normal input
-        last_ctrlc_time = 0.0
+    def _on_submit(text: str) -> bool:
+        """Handle special inputs. Returns True if handled (don't queue to engine)."""
+        nonlocal session_store
 
-        if not user_input:
-            continue
+        # /sandbox command
+        if text.startswith("/sandbox"):
+            output = _capture_console(
+                lambda: handle_sandbox_command(text, sandbox_mgr, console)
+            )
+            if output.strip():
+                # Will be shown via console; for now just let it through
+                pass
+            return True
 
-        # ---------------------------------------------------------------------------
-        # Terminal mode — "!" key toggles mode in-place (no submit needed).
-        # In terminal mode every submitted input is a shell command.
-        # Outside terminal mode "!cmd" runs a one-off shell command.
-        # ---------------------------------------------------------------------------
-        if _terminal_mode_ref[0]:
-            run_shell(user_input, console)
-            continue
-
-        if user_input.startswith("!") and len(user_input) > 1:
-            run_shell(user_input[1:].lstrip(), console)
-            continue
-        if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
-            console.print("[dim]Goodbye.[/dim]")
-            break
-        if user_input.startswith("/sandbox"):
-            handle_sandbox_command(user_input, sandbox_mgr, console)
-            continue
-
-        # Slash commands (session, compact, help, etc.)
-        cmd = parse_command(user_input)
+        # Slash commands
+        cmd = parse_command(text)
         if cmd is not None:
             cmd_name, cmd_args = cmd
             if cmd_name in ("exit", "quit"):
-                console.print("[dim]Goodbye.[/dim]")
-                break
-            # /buddy is handled separately (companion pet)
+                return False  # handled by async app directly
+
+            # /buddy
             if cmd_name == "buddy":
                 from buddy.commands import handle_buddy_command
-                handle_buddy_command(
-                    cmd_args,
-                    engine._client,
-                    console,
-                    app_config.buddy_model or app_config.model,
+                output = _capture_console(
+                    lambda: handle_buddy_command(
+                        cmd_args,
+                        engine._client,
+                        console,
+                        app_config.buddy_model or app_config.model,
+                    )
                 )
+                if output.strip():
+                    console.print(output, end="")
                 # Refresh animator in case companion was just hatched
                 try:
                     from buddy.companion import get_companion
@@ -561,12 +515,14 @@ def main() -> None:
                     if not load_companion_muted():
                         comp = get_companion()
                         if comp:
-                            animator = CompanionAnimator(comp)
+                            _animator_ref[0] = CompanionAnimator(comp)
                     else:
-                        animator = None
+                        _animator_ref[0] = None
                 except Exception:
                     pass
-                continue
+                return True
+
+            # General slash commands
             cmd_ctx = CommandContext(
                 engine=engine,
                 session_store=session_store,
@@ -587,16 +543,15 @@ def main() -> None:
             )
             handle_command(cmd_name, cmd_args, cmd_ctx)
             session_store = cmd_ctx.session_store
-            # If the command set a pending query (e.g. /plan <description>),
-            # submit it to the model instead of continuing to the next prompt.
+            # If the command set a pending query, queue it
             if cmd_ctx.pending_query:
-                user_input = cmd_ctx.pending_query
+                pending = cmd_ctx.pending_query
                 cmd_ctx.pending_query = None
-                # Fall through to normal query processing below
-            else:
-                continue
+                # Schedule the pending query
+                async_repl.queue_message(parse_input(pending))
+            return True
 
-        # Auto-compact when approaching token limits
+        # Auto-compact check before queuing to engine
         if should_compact(engine.get_messages(), model=app_config.model,
                           last_input_tokens=cost_tracker.last_input_tokens):
             console.print("[dim]Auto-compacting conversation…[/dim]")
@@ -604,42 +559,41 @@ def main() -> None:
                 new_msgs, _ = compact_service.compact(
                     engine.get_messages(), engine.system_prompt)
                 engine.set_messages(new_msgs)
-                console.print(f"[dim]Context compressed to {estimate_tokens(new_msgs):,} tokens.[/dim]")
+                console.print(
+                    f"[dim]Context compressed to {estimate_tokens(new_msgs):,} tokens.[/dim]"
+                )
             except Exception as e:
                 console.print(f"[dim red]Auto-compact failed: {e}[/dim red]")
 
-        # Check if user is talking directly to companion — skip Claude, let
-        # companion reply directly via observer (no awkward "." response)
-        _companion_addressed = False
+        # Companion direct address — skip engine, reply directly
         try:
             from buddy.companion import get_companion
             from buddy.storage import load_companion_muted
             from buddy.observer import fire_companion_observer, _is_addressed
             if not load_companion_muted():
                 comp = get_companion()
-                if comp and _is_addressed(user_input, comp.name):
-                    _companion_addressed = True
+                if comp and _is_addressed(text, comp.name):
                     reply_event = threading.Event()
-                    def _direct_reply(text: str) -> None:
-                        _set_reaction(text, print_to_terminal=True)
+
+                    def _direct_reply(reply_text: str) -> None:
+                        _set_reaction(reply_text, print_to_terminal=True)
                         reply_event.set()
+
                     fire_companion_observer(
                         '', comp, engine._client, _direct_reply,
                         model=app_config.buddy_model or app_config.model,
-                        user_msg=user_input,
+                        user_msg=text,
                     )
                     reply_event.wait(timeout=10)
+                    return True
         except Exception:
             pass
 
-        if _companion_addressed:
-            continue
+        return False  # Not handled; queue to engine
 
-        run_query(engine, parse_input(user_input), print_mode=False, permissions=permissions,
-                  todo_manager=todo_manager)
-        _drain_worker_notifications()
-
-        # Fire companion observer in background after each turn
+    def _on_turn_complete():
+        """Called after each engine turn completes (in the asyncio event loop)."""
+        # Fire companion observer
         try:
             from buddy.companion import get_companion
             from buddy.storage import load_companion_muted
@@ -663,7 +617,7 @@ def main() -> None:
                         else:
                             assistant_text = str(content)
                         if assistant_text.strip():
-                            # Update companion mood based on this turn
+                            # Update companion mood
                             try:
                                 import time as _time
                                 from buddy.mood import classify_events, apply_events, apply_decay
@@ -671,30 +625,30 @@ def main() -> None:
                                 now_ms = int(_time.time() * 1000)
                                 current_mood = load_active_mood()
                                 current_mood = apply_decay(current_mood, now_ms)
-                                events = classify_events(assistant_text, user_input)
+                                # We don't have user_input here, use empty string
+                                events = classify_events(assistant_text, "")
                                 if events:
                                     current_mood = apply_events(current_mood, events)
                                 save_active_mood(current_mood)
-                                # Refresh companion with updated mood
-                                comp = get_companion()
-                                if animator and comp:
-                                    animator.update_companion(comp)
+                                comp_refreshed = get_companion()
+                                if _animator_ref[0] and comp_refreshed:
+                                    _animator_ref[0].update_companion(comp_refreshed)
                             except Exception:
                                 pass
                             fire_companion_observer(
                                 assistant_text, comp, engine._client, _set_reaction,
                                 model=app_config.buddy_model or app_config.model,
-                                user_msg=user_input,
+                                user_msg="",
                             )
         except Exception:
-            pass  # Non-essential
+            pass
 
         # Post-turn: extract <memory> tags
         text = engine.last_assistant_text()
         for mem in extract_memory_tags(text):
             append_to_daily_log(memory_dir, mem)
 
-        # Auto-dream gate check — run in background to avoid blocking the REPL
+        # Auto-dream gate check
         current_sid = session_store.session_id if session_store else session_id
         sessions_path = session_store._dir if session_store else None
         if app_config.auto_dream and should_auto_dream(
@@ -706,7 +660,6 @@ def main() -> None:
         ):
             prior_mtime = read_last_consolidated_at(memory_dir)
             if try_acquire_lock(memory_dir):
-                # Gather session IDs for the dream prompt
                 from features.memory import list_sessions_since
                 sids = list_sessions_since(
                     prior_mtime,
@@ -737,6 +690,27 @@ def main() -> None:
                             pass
 
                 threading.Thread(target=_bg_dream, daemon=True).start()
+
+    # Create and run the async REPL
+    async_repl = AsyncREPL(
+        engine=engine,
+        permissions=permissions,
+        file_history=_file_history,
+        todo_manager=todo_manager,
+        cost_tracker=cost_tracker,
+        worker_manager=worker_manager,
+        plan_manager=plan_manager,
+        app_config=app_config,
+        memory_dir=memory_dir,
+        session_store=session_store,
+        compact_service=compact_service,
+        sandbox_mgr=sandbox_mgr,
+        animator=_animator_ref[0],
+        on_submit=_on_submit,
+        on_turn_complete=_on_turn_complete,
+        on_drain_workers=_drain_worker_notifications,
+    )
+    async_repl.run()
 
     # Print cost summary on exit
     if cost_tracker.total_cost_usd > 0:

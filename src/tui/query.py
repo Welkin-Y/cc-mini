@@ -169,3 +169,46 @@ def run_query(engine: Engine, user_input: str | list, print_mode: bool,
 
     if not print_mode:
         console.print()
+
+
+def run_query_threadsafe(
+    engine: Engine,
+    user_input: str | list,
+    event_queue,
+    permissions: PermissionChecker | None = None,
+    todo_manager: TodoManager | None = None,
+) -> None:
+    """Run a single turn in a background thread, posting events to a thread-safe queue.
+
+    Unlike run_query(), this does NOT render output to the terminal. Instead,
+    it posts all events to *event_queue* (a queue.Queue), where the async UI
+    layer picks them up and renders them.
+
+    Events posted are the same tuples from engine.submit():
+      ("text", str)
+      ("waiting",)
+      ("tool_call", name, input, activity)
+      ("tool_executing", name, input, activity)
+      ("tool_result", name, input, result)
+      ("error", str)
+      ("done",)              — sentinel indicating turn complete
+      ("aborted",)           — sentinel indicating turn was aborted
+
+    Permission prompts still use raw input() and work from any thread.
+    """
+    from core.engine import AbortedError
+
+    try:
+        for event in engine.submit(user_input):
+            event_queue.put(event)
+    except (AbortedError, KeyboardInterrupt):
+        try:
+            engine.cancel_turn()
+        except Exception:
+            pass
+        event_queue.put(("aborted",))
+        return
+    except Exception as e:
+        event_queue.put(("error", f"Engine error: {e}"))
+    finally:
+        event_queue.put(("done",))

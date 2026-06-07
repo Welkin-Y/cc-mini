@@ -80,6 +80,77 @@ class StreamingMarkdown:
         self._stable_len = 0
 
 
+class StreamingMarkdownBuffer:
+    """Variant of StreamingMarkdown that renders to ANSI strings instead of printing.
+
+    Used by the async TUI to accumulate streaming output into a buffer that
+    can be rendered in a prompt_toolkit output area. The caller pulls newly
+    stabilized ANSI chunks and displays the unstable trailing part live.
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._stable_len = 0          # chars rendered as stable
+        self._stable_ansi = ""        # accumulated stable ANSI output
+        self._stable_consumed = 0     # how much of _stable_ansi has been pulled
+        self._unstable_raw = ""       # current unstable trailing part
+
+    def feed(self, chunk: str) -> None:
+        """Add a streamed text chunk and update boundaries."""
+        self._buf += chunk
+        self._find_boundaries()
+
+    def _find_boundaries(self) -> None:
+        """Find block boundaries, render newly stable blocks to ANSI."""
+        text = self._buf
+        boundary = self._stable_len
+        for m in _BLOCK_BOUNDARY_RE.finditer(text, self._stable_len):
+            boundary = m.start()
+
+        if boundary > self._stable_len:
+            new_stable = text[self._stable_len:boundary]
+            self._stable_ansi += _render_md_to_ansi(new_stable)
+            self._stable_len = boundary
+
+        self._unstable_raw = text[self._stable_len:]
+
+    def pull_stable(self) -> str:
+        """Return newly stabilized ANSI text since the last pull."""
+        new_text = self._stable_ansi[self._stable_consumed:]
+        self._stable_consumed = len(self._stable_ansi)
+        return new_text
+
+    def get_unstable(self) -> str:
+        """Return ANSI-rendered version of the current unstable trailing part."""
+        if self._unstable_raw:
+            return _render_md_to_ansi(self._unstable_raw)
+        return ""
+
+    def flush(self) -> str:
+        """Finalize: return ANSI-rendered text for any remaining content."""
+        remaining = self._buf[self._stable_len:]
+        self._buf = ""
+        self._stable_len = 0
+        self._stable_ansi = ""
+        self._stable_consumed = 0
+        self._unstable_raw = ""
+        if remaining:
+            return _render_md_to_ansi(remaining)
+        return ""
+
+
+def _render_md_to_ansi(text: str) -> str:
+    """Render Markdown text to an ANSI string using rich."""
+    from io import StringIO
+    buf = StringIO()
+    rc = Console(file=buf, force_terminal=True, color_system="standard", width=120)
+    try:
+        rc.print(RichMarkdown(text))
+    except Exception:
+        buf.write(text)
+    return buf.getvalue()
+
+
 class SpinnerManager:
     """Manages a Rich Live spinner that shows while waiting for API/tool responses.
 
