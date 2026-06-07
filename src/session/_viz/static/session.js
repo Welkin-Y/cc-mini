@@ -426,7 +426,7 @@ async function loadCheckpoints() {
         ? `<span class="cp-git-info">${cp.git_dirty ? '📝' : '✅'} ${cp.git_sha}</span>`
         : '';
       return `
-        <span style="position:relative;display:inline-flex;align-items:center;gap:4px">
+        <span class="cp-anchor">
           <span class="cp-dot" onclick="showCpPopover('${cp.id}',event)" title="${esc(cp.label)} · ${cp.branch}">
             <span class="cp-dot-marker${cp.git_dirty ? ' dirty' : ''}"></span>
             ${esc(cp.label.substring(0,20))}

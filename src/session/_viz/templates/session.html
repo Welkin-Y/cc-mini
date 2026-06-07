@@ -377,7 +377,7 @@
   /* ---- checkpoint bar ---- */
   .cp-bar {
     background: var(--surface); border-bottom: 1px solid var(--border);
-    padding: 6px 24px; overflow-x: auto; white-space: nowrap;
+    padding: 6px 24px; overflow: visible;
     display: flex; align-items: center; gap: 8px;
     font-size: 12px;
     transition: background 0.3s;
@@ -401,11 +401,12 @@
   .cp-save-btn { font-size: 11px; padding: 3px 8px; }
 
   /* popover */
+  .cp-anchor { position: relative; display: inline-flex; align-items: center; gap: 4px; }
   .cp-popover {
-    display: none; position: absolute; z-index: 200;
+    display: none; position: absolute; top: 100%; left: 0; z-index: 999;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius); box-shadow: var(--shadow-lg);
-    padding: 8px; min-width: 140px;
+    padding: 8px; min-width: 200px; margin-top: 4px;
   }
   .cp-popover.show { display: block; }
   .cp-popover button {
