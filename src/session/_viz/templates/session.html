@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Session 对话记录 — cc-mini</title>
+<style>
+  /* ============================================================
+     Design System — warm, modern, accessible
+     ============================================================ */
+  :root {
+    --bg:        #faf9f7;
+    --surface:   #ffffff;
+    --border:    #e8e5e0;
+    --text:      #1a1a2e;
+    --text-dim:  #8b8682;
+    --accent:    #4f6ef7;
+    --accent-dim:#eef1ff;
+    --green:     #10b981;
+    --green-bg:  #ecfdf5;
+    --red:       #f43f5e;
+    --red-bg:    #fff1f2;
+    --yellow:    #f59e0b;
+    --yellow-bg: #fffbeb;
+    --blue-bg:   #eff6ff;
+    --radius-sm: 8px;
+    --radius:    12px;
+    --radius-lg: 16px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.04);
+    --shadow:    0 2px 8px rgba(0,0,0,.06);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,.08);
+    --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono:      "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  }
+
+  /* dark mode */
+  [data-theme="dark"] {
+    --bg:        #0f0f1a;
+    --surface:   #1a1a2e;
+    --border:    #2a2a3e;
+    --text:      #e4e4ed;
+    --text-dim:  #8888a0;
+    --accent:    #748ffc;
+    --accent-dim:#1e1e3a;
+    --green:     #34d399;
+    --green-bg:  #0a2e1f;
+    --red:       #fb7185;
+    --red-bg:    #2e0a14;
+    --yellow:    #fbbf24;
+    --yellow-bg: #2e2000;
+    --blue-bg:   #0f1a2e;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+    --shadow:    0 2px 8px rgba(0,0,0,.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    transition: background 0.3s, color 0.3s;
+  }
+
+  /* ============================================================
+     Top Bar
+     ============================================================ */
+  .topbar {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .topbar-inner {
+    max-width: 960px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; padding: 14px 0;
+  }
+  .topbar-brand {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .topbar-logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #4f6ef7, #7c5cfc);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: #fff;
+  }
+  .topbar-title {
+    font-size: 17px; font-weight: 700; color: var(--text);
+  }
+  .topbar-sub {
+    font-size: 11px; color: var(--text-dim); margin-top: -2px;
+  }
+
+  /* stats row */
+  .stats-row {
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .stat-card {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; transition: background 0.3s;
+  }
+  .stat-icon { font-size: 18px; }
+  .stat-val { font-weight: 700; color: var(--text); }
+  .stat-label { color: var(--text-dim); font-size: 11px; }
+  .stat-ok { color: var(--green); }
+  .stat-err { color: var(--red); }
+
+  /* toolbar buttons */
+  .topbar-actions { display: flex; gap: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px; font-family: var(--font);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn:hover { background: var(--bg); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  .btn-primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .btn-primary:hover { background: #3d5cf0; }
+  .btn-icon { width: 34px; height: 34px; padding: 0; justify-content: center; border-radius: 50%; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+  /* ============================================================
+     Chat Area
+     ============================================================ */
+  .chat-container {
+    max-width: 800px; margin: 0 auto; padding: 24px 16px 80px;
+  }
+
+  /* ---- turn divider ---- */
+  .turn-divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 32px 0 20px; color: var(--text-dim); font-size: 12px;
+  }
+  .turn-divider::before, .turn-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .turn-divider span {
+    white-space: nowrap; padding: 2px 10px;
+    background: var(--bg); border-radius: 20px;
+    border: 1px solid var(--border);
+  }
+
+  /* ---- chat bubbles ---- */
+  .chat-msg {
+    display: flex; margin-bottom: 16px;
+    animation: fadeUp 0.35s ease;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .chat-msg.user  { justify-content: flex-end; }
+  .chat-msg.assistant { justify-content: flex-start; }
+
+  .bubble {
+    max-width: 78%; padding: 12px 18px; border-radius: var(--radius-lg);
+    font-size: 14.5px; line-height: 1.65;
+    word-break: break-word;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.3s;
+  }
+  .chat-msg.user .bubble {
+    background: linear-gradient(135deg, #4f6ef7, #6c8cff);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .chat-msg.user .bubble code {
+    background: rgba(255,255,255,.2); color: #fff;
+  }
+  .chat-msg.assistant .bubble {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .bubble code {
+    background: var(--accent-dim);
+    padding: 1px 5px; border-radius: 4px;
+    font-family: var(--mono); font-size: 13px;
+  }
+  .bubble pre {
+    background: var(--bg); padding: 12px 14px; border-radius: var(--radius-sm);
+    overflow-x: auto; margin: 8px 0;
+    border: 1px solid var(--border);
+    font-family: var(--mono); font-size: 13px;
+  }
+  .bubble p { margin: 0 0 6px; }
+  .bubble p:last-child { margin-bottom: 0; }
+
+  /* ---- avatar ---- */
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+  .chat-msg.user .avatar {
+    order: 2; margin-left: 10px;
+    background: linear-gradient(135deg, #4f6ef7, #7c5cfc);
+    color: #fff;
+  }
+  .chat-msg.assistant .avatar {
+    order: 0; margin-right: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+
+  /* ============================================================
+     Tool Activity Cards
+     ============================================================ */
+  .tool-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 10px 0 10px 42px;  /* indent to align with assistant */
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+    animation: fadeUp 0.35s ease;
+  }
+  .tool-card:hover { box-shadow: var(--shadow); }
+
+  .tool-card-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; cursor: pointer; user-select: none;
+    transition: background 0.15s;
+  }
+  .tool-card-header:hover { background: var(--bg); }
+
+  .tool-icon {
+    width: 34px; height: 34px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .tool-icon.read  { background: var(--blue-bg); }
+  .tool-icon.write { background: var(--yellow-bg); }
+  .tool-icon.exec  { background: var(--red-bg); }
+  .tool-icon.search{ background: var(--green-bg); }
+  .tool-icon.agent { background: var(--accent-dim); }
+
+  .tool-info { flex: 1; min-width: 0; }
+  .tool-action { font-weight: 600; font-size: 13px; color: var(--text); }
+  .tool-detail { font-size: 12px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tool-status-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .tool-status-badge.running {
+    background: var(--blue-bg); color: var(--accent);
+  }
+  .tool-status-badge.done {
+    background: var(--green-bg); color: var(--green);
+  }
+  .tool-status-badge.error {
+    background: var(--red-bg); color: var(--red);
+  }
+  .tool-status-badge.pending {
+    background: var(--yellow-bg); color: var(--yellow);
+  }
+  .tool-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+  .tool-chevron {
+    font-size: 12px; color: var(--text-dim);
+    transition: transform 0.25s;
+  }
+  .tool-card.open .tool-chevron { transform: rotate(180deg); }
+
+  .tool-card-body {
+    display: none; padding: 0 14px 14px;
+    border-top: 1px solid var(--border);
+  }
+  .tool-card.open .tool-card-body { display: block; }
+  .tool-section {
+    margin-top: 12px;
+  }
+  .tool-section-label {
+    font-size: 11px; font-weight: 700; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tool-section-content {
+    background: var(--bg); border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-family: var(--mono); font-size: 12.5px;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 240px; overflow-y: auto;
+    border: 1px solid var(--border);
+    line-height: 1.55;
+  }
+  .tool-section-content.error { border-left: 3px solid var(--red); }
+
+  /* ---- edit buttons (hidden until hover) ---- */
+  .msg-actions {
+    display: flex; gap: 4px; margin-top: 8px; opacity: 0; transition: opacity 0.2s;
+  }
+  .bubble:hover .msg-actions { opacity: 1; }
+  .msg-actions button {
+    background: none; border: 1px solid rgba(255,255,255,.3);
+    color: inherit; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; cursor: pointer; font-family: var(--font);
+  }
+  .chat-msg.assistant .msg-actions button {
+    border-color: var(--border); color: var(--text-dim);
+  }
+  .msg-actions button:hover { background: rgba(0,0,0,.08); }
+  .chat-msg.user .msg-actions button:hover { background: rgba(255,255,255,.2); }
+
+  /* inline edit textarea */
+  .edit-area {
+    width: 100%; min-height: 60px; padding: 10px;
+    border: 2px solid var(--accent); border-radius: var(--radius-sm);
+    font-family: var(--font); font-size: 14px; resize: vertical;
+    background: var(--surface); color: var(--text);
+    line-height: 1.6;
+  }
+  .edit-actions {
+    display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end;
+  }
+  .edit-actions button {
+    padding: 4px 14px; border-radius: var(--radius-sm);
+    font-size: 12px; cursor: pointer; font-family: var(--font);
+  }
+  .btn-save {
+    background: var(--accent); color: #fff; border: none;
+  }
+  .btn-save:hover { background: #3d5cf0; }
+  .btn-cancel {
+    background: var(--bg); color: var(--text-dim); border: 1px solid var(--border);
+  }
+
+  /* tool card actions */
+  .tool-card-actions {
+    display: flex; gap: 6px; padding: 8px 14px;
+    border-top: 1px solid var(--border); opacity: 0; transition: opacity 0.2s;
+  }
+  .tool-card:hover .tool-card-actions { opacity: 1; }
+  .tool-card-actions button {
+    background: none; border: 1px solid var(--border);
+    color: var(--text-dim); padding: 2px 10px; border-radius: 4px;
+    font-size: 11px; cursor: pointer; font-family: var(--font);
+  }
+  .tool-card-actions button:hover { background: var(--bg); color: var(--text); }
+  .tool-card-actions button.danger:hover { color: var(--red); border-color: var(--red); }
+
+  /* rollback link on turn divider */
+  .rollback-link {
+    font-size: 11px; color: var(--text-dim); cursor: pointer;
+    opacity: 0; transition: opacity 0.2s; margin-left: 8px;
+  }
+  .turn-divider:hover .rollback-link { opacity: 1; }
+  .rollback-link:hover { color: var(--red); }
+
+  /* correction badge */
+  .correction-badge {
+    display: inline-block; background: var(--yellow-bg); color: var(--yellow);
+    font-size: 10px; padding: 1px 6px; border-radius: 10px; margin-left: 6px;
+  }
+
+  /* ---- checkpoint bar ---- */
+  .cp-bar {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 6px 24px; overflow-x: auto; white-space: nowrap;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+    transition: background 0.3s;
+  }
+  .cp-bar-inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 8px; width: 100%; }
+  .cp-dot {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 20px;
+    background: var(--bg); border: 1px solid var(--border);
+    cursor: pointer; transition: all 0.15s;
+    font-size: 11px; white-space: nowrap;
+  }
+  .cp-dot:hover { border-color: var(--accent); background: var(--accent-dim); }
+  .cp-dot.active { border-color: var(--accent); background: var(--accent-dim); }
+  .cp-dot-marker { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .cp-dot-marker.dirty { background: var(--yellow); }
+  .cp-branch-tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 10px;
+    background: var(--green-bg); color: var(--green);
+  }
+  .cp-save-btn { font-size: 11px; padding: 3px 8px; }
+
+  /* popover */
+  .cp-popover {
+    display: none; position: absolute; z-index: 200;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    padding: 8px; min-width: 140px;
+  }
+  .cp-popover.show { display: block; }
+  .cp-popover button {
+    display: block; width: 100%; padding: 6px 10px;
+    border: none; background: none; color: var(--text);
+    font-size: 12px; cursor: pointer; text-align: left;
+    font-family: var(--font); border-radius: 4px;
+  }
+  .cp-popover button:hover { background: var(--bg); }
+  .cp-popover button.danger:hover { color: var(--red); }
+
+  /* git info in checkpoint */
+  .cp-git-info {
+    font-size: 10px; color: var(--text-dim);
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+
+  /* ============================================================
+     Empty State
+     ============================================================ */
+  .empty-state {
+    text-align: center; padding: 80px 20px;
+  }
+  .empty-illustration {
+    font-size: 64px; margin-bottom: 16px;
+  }
+  .empty-state h2 {
+    font-size: 22px; font-weight: 700; margin-bottom: 8px;
+    color: var(--text);
+  }
+  .empty-state p {
+    color: var(--text-dim); margin-bottom: 24px; font-size: 14px;
+  }
+
+  /* ============================================================
+     Responsive
+     ============================================================ */
+  @media (max-width: 640px) {
+    .topbar { padding: 0 12px; }
+    .topbar-inner { padding: 10px 0; gap: 8px; }
+    .stats-row { gap: 4px; }
+    .stat-card { padding: 6px 10px; font-size: 12px; }
+    .stat-icon { font-size: 15px; }
+    .chat-container { padding: 16px 10px 80px; }
+    .bubble { max-width: 88%; font-size: 14px; padding: 10px 14px; }
+    .tool-card { margin-left: 0; }
+    .topbar-actions .btn span { display: none; }
+  }
+
+  /* pulse for running tools */
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .pulse { animation: pulse 1.5s ease-in-out infinite; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     Top Bar
+     ============================================================ -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-brand">
+      <div class="topbar-logo">⚡</div>
+      <div>
+        <div class="topbar-title">会话检查器</div>
+        <div class="topbar-sub" id="sid">— <span id="branch-tag" class="cp-branch-tag" style="display:none"></span></div>
+      </div>
+    </div>
+
+    <div class="stats-row" id="stats-bar">
+      <div class="stat-card">
+        <span class="stat-icon">💬</span>
+        <div><span class="stat-val" id="stat-turns">0</span>
+          <span class="stat-label">轮对话</span></div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">🔧</span>
+        <div><span class="stat-val" id="stat-tools">0</span>
+          <span class="stat-label">次工具调用</span></div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">📊</span>
+        <div>
+          <span class="stat-val stat-ok" id="stat-ok">0</span>
+          <span class="stat-label">成功</span>
+          <span class="stat-val stat-err" id="stat-err" style="margin-left:6px">0</span>
+          <span class="stat-label">失败</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">🪙</span>
+        <div><span class="stat-val" id="stat-tokens">0</span>
+          <span class="stat-label">Token</span></div>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <button class="btn btn-primary" onclick="loadDemo()">
+        📥 <span>加载示例</span>
+      </button>
+      <button class="btn" onclick="clearSession()">
+        🗑 <span>清空</span>
+      </button>
+      <button class="btn btn-icon" onclick="toggleDark()" title="切换深色模式" id="dark-btn">🌙</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     Checkpoint Bar
+     ============================================================ -->
+<div class="cp-bar" id="cp-bar" style="display:none">
+  <div class="cp-bar-inner">
+    <span style="color:var(--text-dim);font-size:11px">💾</span>
+    <span id="cp-list" style="display:flex;gap:6px;align-items:center"></span>
+    <span style="flex:1"></span>
+    <button class="btn btn-sm cp-save-btn" onclick="createCheckpoint()">💾 保存检查点</button>
+  </div>
+</div>
+
+<!-- ============================================================
+     Chat Area
+     ============================================================ -->
+<div class="chat-container" id="chat">
+  <div class="empty-state">
+    <div class="empty-illustration">💬</div>
+    <h2>还没有对话记录</h2>
+    <p>点击 <strong>「📥 加载示例」</strong> 查看演示数据，<br>或通过 API 接口推送真实会话数据。</p>
+    <button class="btn btn-primary" onclick="loadDemo()" style="font-size:15px;padding:10px 24px">
+      📥 加载示例数据
+    </button>
+  </div>
+</div>
+
+<script src="/static/session.js"></script>
+</body>
+</html>

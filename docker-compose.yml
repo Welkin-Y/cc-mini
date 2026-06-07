@@ -1,0 +1,23 @@
+services:
+  # ---- Run tests ----
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.session
+    command: python -m pytest src/session/tests/ -v
+    volumes:
+      - ./src/session/tests:/app/src/session/tests:ro
+
+  # ---- Visualization server ----
+  viz:
+    build:
+      context: .
+      dockerfile: Dockerfile.session
+    command: python -m session._viz.server
+    ports:
+      - "${SESSION_PORT:-8080}:8080"
+    volumes:
+      - ./src/session:/app/src/session
+    environment:
+      - SESSION_PORT=8080
+      - SESSION_HOST=0.0.0.0

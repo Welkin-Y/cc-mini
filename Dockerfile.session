@@ -1,0 +1,22 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps (Flask for viz, pytest for tests)
+RUN pip install --no-cache-dir flask>=3.0 pytest>=8.0
+
+# Copy the session package
+COPY src/session/ /app/src/session/
+
+# PYTHONPATH so imports resolve
+ENV PYTHONPATH=/app/src
+
+EXPOSE 8080
+
+# Default command: run tests (override in compose for viz server)
+CMD ["python", "-m", "pytest", "src/session/tests/", "-v"]
