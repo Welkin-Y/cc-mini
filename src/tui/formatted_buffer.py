@@ -7,7 +7,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText, to_formatted_text
 from prompt_toolkit.layout.controls import UIContent, UIControl
 from prompt_toolkit.layout.screen import Point
-from prompt_toolkit.mouse_events import MouseEventType
+from prompt_toolkit.mouse_events import MouseEventType, MouseButton
 from prompt_toolkit.lexers import SimpleLexer
 
 
@@ -50,10 +50,12 @@ class FormattedBuffer(UIControl):
         doc = self.buffer.document
         styled_lines = _split_lines(self._styled_text)
 
-        # Selection range (PT 3.x: tuple (start, end))
+        # Selection range (PT 3.x: tuple (anchor, cursor) — may be reversed)
         sel = self.buffer.selection_state
-        sel_start, sel_end = (sel if isinstance(sel, tuple) and len(sel) == 2
-                              else (-1, -1))
+        if isinstance(sel, tuple) and len(sel) == 2:
+            sel_start, sel_end = min(sel), max(sel)
+        else:
+            sel_start, sel_end = -1, -1
 
         def get_line(i: int):
             if i >= len(doc.lines):
@@ -121,13 +123,16 @@ class FormattedBuffer(UIControl):
             self.buffer.selection_state = None
 
         elif mouse_event.event_type == MouseEventType.MOUSE_MOVE:
-            btn = getattr(mouse_event, 'button', 0)
-            if btn != 0:
+            if mouse_event.button != MouseButton.NONE:
                 # Build selection range from original cursor to current pos
-                orig = self.buffer.cursor_position
-                start, end = sorted([orig, pos])
                 self.buffer.cursor_position = pos
-                self.buffer.selection_state = (start, end)
+                sel = self.buffer.selection_state
+                if sel is None or not isinstance(sel, tuple):
+                    # Start new selection anchored at current position
+                    self.buffer.selection_state = (pos, pos)
+                else:
+                    # Extend selection from anchor to current position
+                    self.buffer.selection_state = (sel[0], pos)
 
         elif mouse_event.event_type == MouseEventType.MOUSE_UP:
             self.buffer.cursor_position = pos
