@@ -142,12 +142,7 @@ class AsyncApp:
             style="class:input-field",
         )
 
-        # Question/ask panel between pending and header
-        self._panel_control = FormattedTextControl(text=[], focusable=False)
-        self._panel_window = ConditionalContainer(
-            content=Window(content=self._panel_control, dont_extend_height=True),
-            filter=Condition(lambda: self._question_active),
-        )
+        # (panel_window created below after ConditionalContainer import)
 
         # Header line between separator and input: "cc-mini provider:model"
         self._header_control = FormattedTextControl(
@@ -171,6 +166,13 @@ class AsyncApp:
 
         # Model picker overlay (hidden by default)
         from prompt_toolkit.layout.containers import ConditionalContainer, FloatContainer, Float
+
+        # Question/ask panel
+        self._panel_control = FormattedTextControl(text=[], focusable=False)
+        self._panel_window = ConditionalContainer(
+            content=Window(content=self._panel_control, dont_extend_height=True),
+            filter=Condition(lambda: self._question_active),
+        )
 
         # Stacked messages above header (while processing)
         self._pending_control = FormattedTextControl(text=[], focusable=False)
