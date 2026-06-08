@@ -338,9 +338,15 @@ class AsyncApp:
                 if self.plan_manager and self.plan_manager.is_active:
                     self.plan_manager.exit()
             color = PT_COLORS[mode]
-            self.display.set_status([
-                ("", "  Mode: "), (f"{color} bold", mode),
-            ])
+            # Update header with new mode color
+            provider = getattr(self.app_config, 'provider', '?') if self.app_config else '?'
+            model = self.engine.get_model()
+            self._header_control.text = [
+                ("bold fg:ansicyan", f" cc-mini "),
+                ("", f"{provider}:{model}  "),
+                (f"{color} bold", f"({mode})"),
+            ]
+            self.display.set_status("")
             self._refresh()
 
         @self._kb.add("!")
@@ -1260,9 +1266,13 @@ class AsyncApp:
         """Launch the TUI (blocks until the user exits)."""
         provider = getattr(self.app_config, 'provider', 'anthropic') if self.app_config else 'anthropic'
         model = self.engine.get_model()
+        MODES = ["normal", "auto-approve", "plan"]
+        PT_COLORS = {"normal": "fg:ansigreen", "auto-approve": "fg:ansiyellow", "plan": "fg:ansicyan"}
+        mode = MODES[self._perm_mode]
         self._header_control.text = [
             ("bold fg:ansicyan", f" cc-mini "),
-            ("", f"{provider}:{model}"),
+            ("", f"{provider}:{model}  "),
+            (PT_COLORS[mode], f"({mode})"),
         ]
         self._refresh()
         await self._app.run_async()
