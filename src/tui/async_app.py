@@ -158,6 +158,14 @@ class AsyncApp:
         # Model picker overlay (hidden by default)
         from prompt_toolkit.layout.containers import ConditionalContainer, FloatContainer, Float
 
+        # Stacked messages above header (while processing)
+        self._pending_control = FormattedTextControl(text=[], focusable=False)
+        self._pending_window = ConditionalContainer(
+            content=Window(content=self._pending_control,
+                           height=2, dont_extend_height=True),
+            filter=Condition(lambda: len(self._pending_stack) > 0),
+        )
+
         self._overlay_control = FormattedTextControl(
             text=self._render_overlay,
             focusable=True,
@@ -175,6 +183,7 @@ class AsyncApp:
         _body = HSplit([
             self._chat_window,
             Window(height=1, char="━", style="class:separator"),
+            self._pending_window,
             Window(content=self._header_control, height=1, dont_extend_height=True),
             self._input,
             self._status_window,
@@ -557,11 +566,14 @@ class AsyncApp:
         buffer.text = ""
 
         if self._is_processing:
-            # Claude-style: queued messages appear in chat immediately
+            # Show stacked messages above header, not in chat yet
             self._pending_stack.append(text)
-            self.display.add_user_message(text)
             n = len(self._pending_stack)
-            self.display.set_status(f"Queued ({n})")
+            lines = [("class:pending", f" Queued ({n}): ")]
+            for i, msg in enumerate(self._pending_stack):
+                preview = msg[:60] + ("…" if len(msg) > 60 else "")
+                lines.append(("", f"\n     {preview}"))
+            self._pending_control.text = lines
             self._refresh()
             return True
 
@@ -624,8 +636,9 @@ class AsyncApp:
                 self._refresh()
                 return
 
-            # Normal message: submit to engine
+            # Normal message: add to chat and submit to engine
             self.display.add_user_message(text)
+            self._pending_control.text = []
             self._refresh()
             await self._run_engine(text)
 
@@ -642,8 +655,15 @@ class AsyncApp:
             # Drain stacked messages — process next queued input if any
             if self._pending_stack:
                 next_msg = self._pending_stack.pop(0)
-                if self._pending_stack:
-                    self.display.set_status(f"Queued ({len(self._pending_stack)})")
+                n = len(self._pending_stack)
+                if n:
+                    lines = [("class:pending", f" Queued ({n}): ")]
+                    for msg in self._pending_stack:
+                        preview = msg[:60] + ("…" if len(msg) > 60 else "")
+                        lines.append(("", f"\n     {preview}"))
+                    self._pending_control.text = lines
+                else:
+                    self._pending_control.text = []
                 loop = asyncio.get_running_loop()
                 self._current_task = loop.create_task(self._process_input(next_msg))
 
