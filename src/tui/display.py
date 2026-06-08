@@ -187,15 +187,17 @@ class ChatDisplay:
                 label = f"↳ {msg.tool_name}({msg.tool_preview})" if msg.tool_preview else f"↳ {msg.tool_name}"
                 if msg.tool_status == "done":
                     icon = "\x1b[31m✗\x1b[0m" if msg.tool_result_is_error else "\x1b[32m✓\x1b[0m"
-                    buf_lines.append(f"\x1b[37m  {label} {icon}\x1b[0m")
+                    buf_lines.append(f"  {icon} \x1b[37m{label}\x1b[0m")
                 elif msg.tool_status == "error":
-                    buf_lines.append(f"\x1b[37m  {label} \x1b[31m✗\x1b[0m")
+                    buf_lines.append(f"  \x1b[31m✗\x1b[0m \x1b[37m{label}\x1b[0m")
                 elif msg.tool_status == "running":
                     buf_lines.append(f"\x1b[37m  {label} …\x1b[0m")
                 else:
                     buf_lines.append(f"\x1b[37m  {label}\x1b[0m")
                 if msg.content and msg.tool_status in ("done", "error"):
-                    buf_lines.append(f"\x1b[37m  {msg.content}\x1b[0m")
+                    content = msg.content.replace("\t", "    ")[:500]
+                    for line in content.split("\n")[:5]:
+                        buf_lines.append(f"\x1b[37m\x1b[2m     {line}\x1b[0m")
             elif msg.role == "system":
                 if msg.tool_status == "plain":
                     buf_lines.append(f"\x1b[37m  {msg.content}\x1b[0m")
@@ -276,26 +278,29 @@ def _render_assistant(msg: _Msg, result: list[tuple[str, str]]) -> None:
 
 
 def _render_tool(msg: _Msg, result: list[tuple[str, str]]) -> None:
-    """Tool call/result: single line with icon."""
+    """Tool call/result: single line with icon, dim result content."""
     label = f"↳ {msg.tool_name}({msg.tool_preview})" if msg.tool_preview else f"↳ {msg.tool_name}"
 
     if msg.tool_status == "pending":
-        result.append(("fg:ansigray", f"  {label}"))
+        result.append(("fg:ansigray", f"  {label}\n"))
     elif msg.tool_status == "running":
-        result.append(("fg:ansigray", f"  {label} … "))
+        result.append(("fg:ansigray", f"  {label} …\n"))
     elif msg.tool_status == "done":
         icon = "✗" if msg.tool_result_is_error else "✓"
         color = "fg:ansired" if msg.tool_result_is_error else "fg:ansigreen"
-        result.append(("fg:ansigray", f"  {label} "))
-        result.append((color, icon))
+        result.append((color, f"  {icon} "))
+        result.append(("fg:ansigray", f"{label}\n"))
         if msg.content:
-            result.append(("fg:ansigray", f"  {msg.content}"))
+            # Show result content dimmed and truncated
+            content = msg.content.replace("\t", "    ")[:500]
+            for line in content.split("\n")[:5]:
+                result.append(("fg:ansigray dim italic", f"     {line}\n"))
     elif msg.tool_status == "error":
-        result.append(("fg:ansigray", f"  {label} "))
-        result.append(("fg:ansired", "✗"))
+        result.append(("fg:ansired", "  ✗ "))
+        result.append(("fg:ansigray", f"{label}\n"))
         if msg.content:
-            result.append(("fg:ansired", f"  {msg.content}"))
-    result.append(("", "\n"))
+            content = msg.content.replace("\t", "    ")[:200]
+            result.append(("fg:ansired dim", f"     {content}\n"))
 
 
 def _render_thinking(msg: _Msg, result: list[tuple[str, str]]) -> None:
