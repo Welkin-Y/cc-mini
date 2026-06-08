@@ -317,6 +317,7 @@ class AsyncApp:
         def _(event):
             """Cycle permission mode: normal → auto-approve → plan → normal."""
             MODES = ["normal", "auto-approve", "plan"]
+            COLORS = {"normal": "green", "auto-approve": "yellow", "plan": "cyan"}
             self._perm_mode = (self._perm_mode + 1) % 3
             mode = MODES[self._perm_mode]
             if mode == "auto-approve" and self.permissions:
@@ -331,7 +332,7 @@ class AsyncApp:
                     self.permissions._auto_approve = False
                 if self.plan_manager and self.plan_manager.is_active:
                     self.plan_manager.exit()
-            self.display.set_status(f"Mode: {mode}")
+            self.display.set_status(f"[{COLORS[mode]}]Mode: {mode}[/{COLORS[mode]}]")
             self._refresh()
 
         @self._kb.add("!")
