@@ -239,7 +239,10 @@ class AsyncApp:
                     text = self._chat_buffer.text[s:e]
                     b64 = base64.b64encode(text.encode()).decode()
                     # OSC 52 escape sequence — works in most terminals
-                    print(f"\x1b]52;c;{b64}\x07", end="", flush=True)
+                    # Write directly to terminal (bypass PT output layer)
+                    import sys as _sys
+                    _sys.__stdout__.write(f"\x1b]52;c;{b64}\x07")
+                    _sys.__stdout__.flush()
                     self._chat_buffer.selection_state = None
                     self.display.set_status("Copied!")
                     self._refresh()
@@ -254,7 +257,10 @@ class AsyncApp:
                     s, e = min(in_sel), max(in_sel)
                     text = self._input.buffer.text[s:e]
                     b64 = base64.b64encode(text.encode()).decode()
-                    print(f"\x1b]52;c;{b64}\x07", end="", flush=True)
+                    # Write directly to terminal (bypass PT output layer)
+                    import sys as _sys
+                    _sys.__stdout__.write(f"\x1b]52;c;{b64}\x07")
+                    _sys.__stdout__.flush()
                     self._input.buffer.selection_state = None
                     self.display.set_status("Copied!")
                     self._refresh()
