@@ -174,12 +174,17 @@ async def submit_async(
                     elif kind == "tool_call":
                         _, tool_name, tool_input, activity = event[:4]
                         tool_use_id = event[4] if len(event) > 4 else _make_fallback_id(tool_name, tool_input)
+                        if tool_name == "AskUserQuestion":
+                            pending_tools[tool_use_id] = "_skip"
+                            continue
                         key = display.add_tool_call(tool_name, tool_input, activity)
                         pending_tools[tool_use_id] = key
                         display.set_status(f"Running {tool_name}…")
 
                     elif kind == "tool_executing":
                         _, tool_name, tool_input, activity = event[:4]
+                        if tool_name == "AskUserQuestion":
+                            continue
                         tool_use_id = event[4] if len(event) > 4 else _make_fallback_id(tool_name, tool_input)
                         if tool_use_id in pending_tools:
                             display.update_tool_running(pending_tools[tool_use_id])
@@ -187,6 +192,17 @@ async def submit_async(
                     elif kind == "tool_result":
                         _, tool_name, tool_input, result = event[:4]
                         tool_use_id = event[4] if len(event) > 4 else _make_fallback_id(tool_name, tool_input)
+
+                        if tool_name == "AskUserQuestion":
+                            content = (result.content if hasattr(result, 'content')
+                                       else str(result))
+                            for line in content.split("\n"):
+                                if line.strip():
+                                    display.add_system_message(
+                                        f"[bold]→[/bold] {line.strip()}")
+                            pending_tools.pop(tool_use_id, None)
+                            continue
+
                         if tool_use_id in pending_tools:
                             key = pending_tools.pop(tool_use_id)
                             display.update_tool_done(
@@ -269,10 +285,11 @@ class _QuestionBridge:
                 return type('R', (), {'content': 'Cancelled', 'is_error': True})()
             if result_container[0] is None:
                 return type('R', (), {'content': 'Cancelled', 'is_error': True})()
+            answers = result_container[0]
             return type('R', (), {
-                'content': 'User answered:\n' + '\n'.join(
-                    f"{q.get('question','')} => {a}"
-                    for q, a in zip(questions, result_container[0])
+                'content': '\n'.join(
+                    f"{q.get('question','')} → {a}"
+                    for q, a in zip(questions, answers)
                 ),
                 'is_error': False,
             })()
