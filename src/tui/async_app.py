@@ -568,7 +568,6 @@ class AsyncApp:
         if self._is_processing:
             # Show stacked messages above header, not in chat yet
             self._pending_stack.append(text)
-            n = len(self._pending_stack)
             lines = []
             for msg in self._pending_stack:
                 preview = msg[:60] + ("…" if len(msg) > 60 else "")
@@ -638,7 +637,6 @@ class AsyncApp:
 
             # Normal message: add to chat and submit to engine
             self.display.add_user_message(text)
-            self._pending_control.text = []
             self._refresh()
             await self._run_engine(text)
 
@@ -655,12 +653,11 @@ class AsyncApp:
             # Drain stacked messages — process next queued input if any
             if self._pending_stack:
                 next_msg = self._pending_stack.pop(0)
-                n = len(self._pending_stack)
-                if n:
-                    lines = [("class:pending", f" Queued ({n}): ")]
+                if self._pending_stack:
+                    lines = []
                     for msg in self._pending_stack:
                         preview = msg[:60] + ("…" if len(msg) > 60 else "")
-                        lines.append(("", f"\n     {preview}"))
+                        lines.append(("class:pending", f" {preview}\n"))
                     self._pending_control.text = lines
                 else:
                     self._pending_control.text = []
