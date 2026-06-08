@@ -79,6 +79,7 @@ class AsyncApp:
         self._abort_requested = False
         self._terminal_mode = False
         self._current_task: Optional[asyncio.Task] = None
+        self._thinking_start: Optional[float] = None
 
         # -- Permission mode (Shift+Tab cycles through) --
         self._perm_mode = 0  # 0=normal, 1=auto-approve, 2=plan
@@ -577,6 +578,11 @@ class AsyncApp:
 
     def _refresh(self) -> None:
         """Push latest display state into the UI controls and invalidate."""
+        import time as _time
+        # Update spinner animation if thinking
+        if self._thinking_start and self._is_processing:
+            elapsed = _time.monotonic() - self._thinking_start
+            self.display.show_thinking(elapsed)
         ft = self.display.render()
         plain = _fmt_to_plain(ft)
         self._chat_buffer.text = plain
@@ -919,6 +925,7 @@ class AsyncApp:
         await self._auto_compact()
 
         t0 = _time.monotonic()
+        self._thinking_start = t0
         self.display.show_thinking(0.0)
         self._refresh()
 
@@ -936,6 +943,7 @@ class AsyncApp:
             self.display.add_system_message(f"[red]{exc}[/red]")
 
         elapsed = _time.monotonic() - t0
+        self._thinking_start = None
         self.display.hide_thinking()
         self.display.mark_done_timing(elapsed)
         self._post_turn_hooks()
