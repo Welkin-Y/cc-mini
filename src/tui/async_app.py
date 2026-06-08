@@ -346,8 +346,7 @@ class AsyncApp:
             if (self._overlay_future and not self._overlay_future.done()
                     and self._overlay_options):
                 self._overlay_future.set_result(
-                    (self._overlay_options[self._overlay_cursor][0],
-                     self._overlay_effort_idx)
+                    self._overlay_options[self._overlay_cursor][0]
                 )
 
         @self._kb.add("escape", filter=_overlay_active)
@@ -437,15 +436,15 @@ class AsyncApp:
         return lines
 
     async def _show_model_picker(self, options: list[tuple[str, str, str]],
-                                  current_alias: str) -> Optional[tuple[str, int]]:
-        """Show modal model picker, return (alias, effort_idx) or None."""
+                                  current_alias: str) -> Optional[str]:
+        """Show modal model picker, return selected alias or None."""
         for i, (alias, _, _) in enumerate(options):
             if alias == current_alias:
                 self._overlay_cursor = i
                 break
         self._overlay_options = options
         self._overlay_current_alias = current_alias
-        self._overlay_effort_idx = 2  # default: high
+        self._overlay_effort_idx = 2
         self._overlay_future = asyncio.get_running_loop().create_future()
         self._overlay_active = True
         self._overlay_control.text = self._render_overlay()
@@ -525,16 +524,11 @@ class AsyncApp:
             self._refresh()
             return
 
-        alias, effort_idx = result
-        effort_levels = ["low", "medium", "high"]
-        effort = effort_levels[effort_idx]
-
-        # Apply model
-        self.engine.set_model(alias)
+        self.engine.set_model(result)
         actual = self.engine.get_model()
         if self.session_store:
             self.session_store.model = actual
-        self.display.set_status(f"Model: {actual}  effort: {effort}")
+        self.display.set_status(f"Model: {actual}")
         self._refresh()
 
     # ---- dismiss --------------------------------------------------------------
@@ -688,7 +682,7 @@ class AsyncApp:
                 permissions=self.permissions,
                 permission_handler=self._permission_handler,
                 refresh_callback=self._refresh,
-                full_redraw_fn=self._full_redraw,
+                question_handler=self._question_handler,
             )
         except Exception as exc:
             self.display.add_system_message(f"[red]{exc}[/red]")
@@ -696,6 +690,63 @@ class AsyncApp:
         self._post_turn_hooks()
 
     # ---- permission prompt handler ------------------------------------------
+
+    async def _question_handler(self, questions: list) -> list:
+        """Handle AskUserQuestion via overlay (like model picker)."""
+        results = []
+        for q in questions:
+            question_text = q.get("question", "")
+            options = q.get("options", [])
+            labels = [o["label"] for o in options] + ["Other"]
+            descs = [o.get("description", "") for o in options] + [""]
+            multi = q.get("multiSelect", False)
+
+            # Build overlay options: (label, display, description)
+            overlay_opts = [(l, l, d) for l, d in zip(labels, descs)]
+
+            result = await self._show_question_overlay(
+                question_text, overlay_opts)
+            if result is None:
+                return []  # cancelled
+            results.append(result)
+        return results
+
+    async def _show_question_overlay(self, question: str,
+                                      options: list) -> Optional[str]:
+        """Show question overlay, return selected label or None."""
+        self._overlay_options = options
+        self._overlay_cursor = 0
+        self._overlay_effort_idx = 0  # reused as text_buf_idx
+        self._overlay_current_alias = ""  # reused for other text
+        self._overlay_future = asyncio.get_running_loop().create_future()
+        self._overlay_active = True
+        self._overlay_control.text = self._render_question_overlay(question)
+        self._app.invalidate()
+        try:
+            return await self._overlay_future
+        finally:
+            self._overlay_active = False
+            self._overlay_future = None
+            self._app.invalidate()
+
+    def _render_question_overlay(self, question: str) -> list:
+        """Render question overlay like model picker but with question text."""
+        labels = [o[0] for o in self._overlay_options]
+        descs = [o[2] for o in self._overlay_options]
+        lines: list[tuple[str, str]] = []
+        lines.append(("bold", f"? {question}\n"))
+        lines.append(("ansigray", "  " + "-" * 40 + "\n"))
+        for i, (label, desc) in enumerate(zip(labels, descs)):
+            is_cur = i == self._overlay_cursor
+            ptr = "❯" if is_cur else " "
+            sty = "bold ansibrightcyan" if is_cur else ""
+            lines.append((sty, f"  {ptr} {i+1}) {label}"))
+            if desc:
+                lines.append(("ansigray", f" - {desc}"))
+            lines.append(("", "\n"))
+        lines.append(("", "\n"))
+        lines.append(("ansigray", "  ↑↓ select · 1-9 shortcut · ↵ confirm · esc cancel"))
+        return lines
 
     async def _permission_handler(self, tool_name: str, tool_input: dict) -> str:
         """Show an inline permission prompt and wait for y/n/a key press.

@@ -49,7 +49,7 @@ async def submit_async(
     permissions: Optional[PermissionChecker] = None,
     permission_handler: Optional[PermissionHandler] = None,
     refresh_callback=None,
-    full_redraw_fn=None,
+    question_handler=None,
 ) -> None:
     """Run engine.submit() in a thread, streaming events to the display.
 
@@ -60,12 +60,9 @@ async def submit_async(
     If *refresh_callback* is provided, it is called (synchronously) after
     every event that changes the display, so the TUI can repaint immediately.
 
-    If *full_redraw_fn* is provided, it is called after AskUserQuestion
-    completes (its mini PT app corrupts the terminal; a full redraw repairs it).
     """
     loop = asyncio.get_running_loop()
     _refresh = refresh_callback or (lambda: None)
-    _full_redraw = full_redraw_fn or _refresh
     event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
     # -- Setup bridged permission prompts --
@@ -88,6 +85,15 @@ async def submit_async(
         _original_prompt_provider = permissions._prompt_provider
         permissions._prompt_provider = _bridge.handle_prompt
 
+    # Patch AskUserQuestion to use overlay instead of its own PT app
+    _question_bridge = _QuestionBridge(loop) if question_handler else None
+    _original_ask_execute = None
+    if _question_bridge:
+        ask_tool = engine._tools.get("AskUserQuestion")
+        if ask_tool:
+            _original_ask_execute = ask_tool.execute
+            ask_tool.execute = _question_bridge.make_execute(ask_tool.execute)
+
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             pool.submit(_run_engine)
@@ -102,8 +108,17 @@ async def submit_async(
             _TICK = 0.03  # ~30fps — render at most this often
 
             while not _done:
-                # -- Handle pending permission requests --
+                # -- Handle pending permission + question requests --
                 pending_reqs = _bridge.drain_pending()
+                if _question_bridge:
+                    for questions, ev, result in _question_bridge.drain():
+                        if question_handler:
+                            answers = await question_handler(questions)
+                        else:
+                            answers = None
+                        result.append(answers)
+                        ev.set()
+
                 for req_info in pending_reqs:
                     tool, inputs, ev, result_container = req_info
                     if permission_handler is not None:
@@ -165,8 +180,6 @@ async def submit_async(
 
                     elif kind == "tool_executing":
                         _, tool_name, tool_input, activity = event[:4]
-                        if tool_name == "AskUserQuestion":
-                            continue
                         tool_use_id = event[4] if len(event) > 4 else _make_fallback_id(tool_name, tool_input)
                         if tool_use_id in pending_tools:
                             display.update_tool_running(pending_tools[tool_use_id])
@@ -174,15 +187,6 @@ async def submit_async(
                     elif kind == "tool_result":
                         _, tool_name, tool_input, result = event[:4]
                         tool_use_id = event[4] if len(event) > 4 else _make_fallback_id(tool_name, tool_input)
-
-                        # AskUserQuestion already rendered via its own PT app —
-                        # don't echo verbose result in output area.
-                        if tool_name == "AskUserQuestion":
-                            pending_tools.pop(tool_use_id, None)
-                            display.add_system_message(" Answered")
-                            _full_redraw()
-                            continue
-
                         if tool_use_id in pending_tools:
                             key = pending_tools.pop(tool_use_id)
                             display.update_tool_done(
@@ -210,6 +214,10 @@ async def submit_async(
     finally:
         if permissions is not None:
             permissions._prompt_provider = _original_prompt_provider
+        if _original_ask_execute is not None:
+            ask_tool = engine._tools.get("AskUserQuestion")
+            if ask_tool:
+                ask_tool.execute = _original_ask_execute
 
 
 def _enqueue_safe(loop, queue, item):
@@ -236,6 +244,47 @@ def _make_fallback_id(tool_name: str, tool_input: dict) -> str:
         fp = str(tool_input.get("file_path", ""))
         return f"{tool_name}:{fp}"
     return f"{tool_name}:{hash(str(tool_input))}"
+
+
+class _QuestionBridge:
+    """Bridges AskUserQuestion from engine thread to async TUI overlay.
+
+    Engine thread calls the patched execute() → blocks on threading.Event.
+    Main loop drains pending questions → shows overlay → sends result back.
+    """
+
+    def __init__(self, loop):
+        self._loop = loop
+        self._lock = threading.Lock()
+        self._pending: list[tuple] = []  # [(questions, event, result)]
+
+    def make_execute(self, original_execute):
+        def _patched_execute(**kwargs):
+            result_container: list = []
+            ev = threading.Event()
+            questions = kwargs.get("questions", [])
+            with self._lock:
+                self._pending.append((questions, ev, result_container))
+            if not ev.wait(timeout=300):
+                return type('R', (), {'content': 'Cancelled', 'is_error': True})()
+            if result_container[0] is None:
+                return type('R', (), {'content': 'Cancelled', 'is_error': True})()
+            return type('R', (), {
+                'content': 'User answered:\n' + '\n'.join(
+                    f"{q.get('question','')} => {a}"
+                    for q, a in zip(questions, result_container[0])
+                ),
+                'is_error': False,
+            })()
+        return _patched_execute
+
+    def drain(self):
+        with self._lock:
+            if not self._pending:
+                return []
+            batch = list(self._pending)
+            self._pending.clear()
+        return batch
 
 
 class _PromptBridge:
