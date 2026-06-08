@@ -140,6 +140,27 @@ class ChatDisplay:
         self._messages.append(_Msg(role="system", content=text,
                                    tool_status="plain" if plain else ""))
 
+    _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def show_thinking(self, elapsed: float = 0.0) -> None:
+        """Show spinner + elapsed time in the output area."""
+        frame = self._SPINNER[int(elapsed * 10) % len(self._SPINNER)]
+        text = f"  {frame} Thinking… {elapsed:.1f}s"
+        self._thinking = True
+        self._thinking_elapsed = elapsed
+        # Remove previous thinking message, add fresh one
+        self._messages = [m for m in self._messages if m.role != "_thinking"]
+        self._messages.append(_Msg(role="_thinking", content=text))
+
+    def hide_thinking(self, total: float = 0.0) -> None:
+        """Remove thinking indicator. Optionally show total time."""
+        self._messages = [m for m in self._messages if m.role != "_thinking"]
+        self._thinking = False
+
+    def mark_done_timing(self, elapsed: float) -> None:
+        """Show completion timing in the output area."""
+        self._messages.append(_Msg(role="system", content=f"  ✓ Done ({elapsed:.1f}s)"))
+
     def set_status(self, text: str) -> None:
         self._status = text
 
@@ -193,11 +214,7 @@ class ChatDisplay:
     # -- rendering -----------------------------------------------------------
 
     def render(self) -> FormattedText:
-        """Render all messages to a prompt_toolkit FormattedText.
-
-        Uses Rich to convert markdown→ANSI for assistant messages,
-        and simple styling for tool/user/system messages.
-        """
+        """Render all messages to a prompt_toolkit FormattedText."""
         result: list[tuple[str, str]] = []
 
         for msg in self._messages:
@@ -209,18 +226,20 @@ class ChatDisplay:
                 _render_tool(msg, result)
             elif msg.role == "system":
                 _render_system(msg, result)
+            elif msg.role == "_thinking":
+                _render_thinking(msg, result)
 
         # Trailing newline
         result.append(("", "\n"))
         return FormattedText(result)
 
     def render_status_line(self) -> list[tuple[str, str]]:
-        """Render the status line. Accepts plain string or FormattedText list."""
+        """Render the status line."""
         if isinstance(self._status, list):
             return self._status
         if self._status:
             return [("fg:ansiyellow bold", f"  {self._status}")]
-        return [("fg:ansigreen", "  Ready")]
+        return [("", " ")]
 
 
 # -- internal render helpers ------------------------------------------------
@@ -278,6 +297,12 @@ def _render_tool(msg: _Msg, result: list[tuple[str, str]]) -> None:
         result.append(("fg:ansired", "✗"))
         if msg.content:
             result.append(("fg:ansired", f"  {msg.content}"))
+    result.append(("", "\n"))
+
+
+def _render_thinking(msg: _Msg, result: list[tuple[str, str]]) -> None:
+    """Spinner + elapsed time indicator."""
+    result.append(("fg:ansiyellow", msg.content))
     result.append(("", "\n"))
 
 

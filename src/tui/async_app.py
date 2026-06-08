@@ -620,6 +620,19 @@ class AsyncApp:
             self._overlay_future = None
             self._app.invalidate()
 
+    async def _handle_cost_command(self) -> None:
+        """Show cost info above input area."""
+        if self.cost_tracker is None:
+            self.display.add_system_message("Cost tracking unavailable.")
+            self._refresh()
+            return
+        cost_text = self.cost_tracker.format_cost()
+        self._header_control.text = [
+            ("bold fg:ansicyan", f" cc-mini "),
+            ("", f"{cost_text}"),
+        ]
+        self._refresh()
+
     def _hide_overlay(self) -> None:
         self._overlay_active = False
         self._app.invalidate()
@@ -832,10 +845,12 @@ class AsyncApp:
     async def _run_engine(self, user_input) -> None:
         """Submit user input to the engine and stream results to the display."""
         from tui.engine_bridge import submit_async
+        import time as _time
 
         await self._auto_compact()
 
-        self.display.set_status("Thinking…")
+        t0 = _time.monotonic()
+        self.display.show_thinking(0.0)
         self._refresh()
 
         try:
@@ -851,6 +866,9 @@ class AsyncApp:
         except Exception as exc:
             self.display.add_system_message(f"[red]{exc}[/red]")
 
+        elapsed = _time.monotonic() - t0
+        self.display.hide_thinking()
+        self.display.mark_done_timing(elapsed)
         self._post_turn_hooks()
 
     # ---- permission prompt handler ------------------------------------------
@@ -989,6 +1007,9 @@ class AsyncApp:
         # /model with overlay — handled inline, not via thread executor
         if cmd_name == "model":
             await self._handle_model_command(cmd_args)
+            return
+        if cmd_name == "cost":
+            await self._handle_cost_command()
             return
         if cmd_name == "clear":
             self.display._messages.clear()
