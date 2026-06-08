@@ -109,6 +109,7 @@ class AsyncApp:
         self._overlay_options: list[tuple[str, str, str]] = []  # (alias, label, desc)
         self._overlay_current_alias = ""
         self._overlay_effort_idx = 2  # default: high
+        self._overlay_scroll = 0
         self._overlay_future: Optional[asyncio.Future] = None
 
         # -- Build layout --
@@ -193,8 +194,8 @@ class AsyncApp:
         self._overlay_window = ConditionalContainer(
             content=Window(
                 content=self._overlay_control,
-                width=50,
-                height=12,
+                width=55,
+                height=14,
                 style="class:dialog",
             ),
             filter=Condition(lambda: self._overlay_active),
@@ -590,33 +591,55 @@ class AsyncApp:
     # ---- model picker overlay ------------------------------------------------
 
     def _render_overlay(self) -> list[tuple[str, str]]:
-        """Render the model picker overlay — matches legacy _cmd_model UI."""
+        """Render model/session picker overlay with scroll support."""
         current = self.engine.get_model()
         effort_levels = ["low", "medium", "high"]
         effort_sym = {"low": "◑", "medium": "◕", "high": "●"}
         eff = effort_levels[self._overlay_effort_idx]
+        MAX_VISIBLE = 8  # max items visible, scroll when more
 
         lines: list[tuple[str, str]] = []
-        lines.append(("bold ansibrightcyan", "  Select model\n"))
-        lines.append(("ansigray", "  Switch between models. For other model names, specify\n"
-                                 "  with --model.\n\n"))
 
-        for i, (alias, label, desc) in enumerate(self._overlay_options):
+        # Title
+        if self._overlay_options and len(self._overlay_options[0]) > 2:
+            lines.append(("bold ansibrightcyan", "  Select session\n"))
+            lines.append(("ansigray", "  Pick a session to resume.\n\n"))
+        else:
+            lines.append(("bold ansibrightcyan", "  Select model\n"))
+            lines.append(("ansigray", "  Switch between models.\n\n"))
+
+        # Calculate visible range
+        total = len(self._overlay_options)
+        # Keep cursor in view
+        if self._overlay_cursor < self._overlay_scroll:
+            self._overlay_scroll = self._overlay_cursor
+        elif self._overlay_cursor >= self._overlay_scroll + MAX_VISIBLE:
+            self._overlay_scroll = self._overlay_cursor - MAX_VISIBLE + 1
+        start = max(0, self._overlay_scroll)
+        end = min(total, start + MAX_VISIBLE)
+
+        for i in range(start, end):
+            alias, label, desc = self._overlay_options[i]
             is_cur = i == self._overlay_cursor
             is_active = alias == self._overlay_current_alias
             ptr = "❯" if is_cur else " "
             sty = "bold ansibrightcyan" if is_cur else ""
             chk = " ✔" if is_active else ""
             lines.append((sty, f"  {ptr} {i+1}. {label}{chk}\n"))
-            lines.append(("ansigray", f"     {desc}\n"))
+            if desc:
+                lines.append(("ansigray", f"     {desc}\n"))
+
+        if total > MAX_VISIBLE:
+            lines.append(("ansigray", f"\n  ({start+1}-{min(end,total)} of {total})"))
 
         lines.append(("", "\n"))
-        lines.append(("ansigray", "  Effort: "))
-        for lvl in effort_levels:
-            s = "bold ansibrightcyan" if lvl == eff else "ansigray"
-            lines.append((s, f" {effort_sym[lvl]} {lvl} "))
-        lines.append(("", "\n"))
-        lines.append(("ansigray", "  ↑↓ select · ←→ effort · ↵ confirm · esc cancel"))
+        if self._overlay_options and len(self._overlay_options[0]) <= 2:
+            lines.append(("ansigray", "  Effort: "))
+            for lvl in effort_levels:
+                s = "bold ansibrightcyan" if lvl == eff else "ansigray"
+                lines.append((s, f" {effort_sym[lvl]} {lvl} "))
+            lines.append(("", "\n"))
+        lines.append(("ansigray", "  ↑↓ select · ↵ confirm · esc cancel"))
         return lines
 
     async def _show_model_picker(self, options: list[tuple[str, str, str]],
@@ -650,7 +673,7 @@ class AsyncApp:
             self._refresh()
             return
 
-        options = [(s.session_id[:8], f"{s.title[:50]} ({s.message_count} msgs)", s.updated_at[:10]) for s in sessions]
+        options = [(s.session_id[:8], f"{s.title[:50]} ({s.message_count} msgs)", s.updated_at[:10] if hasattr(s, 'updated_at') else "") for s in sessions]
         result = await self._show_model_picker(options, "")
         if result is None:
             return
