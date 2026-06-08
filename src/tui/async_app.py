@@ -80,6 +80,9 @@ class AsyncApp:
         self._terminal_mode = False
         self._current_task: Optional[asyncio.Task] = None
 
+        # -- Permission mode (Shift+Tab cycles through) --
+        self._perm_mode = 0  # 0=normal, 1=auto-approve, 2=plan
+
         # -- Dismissable command output --
         self._dismissable_count: int = 0
 
@@ -309,6 +312,27 @@ class AsyncApp:
             if self._is_processing:
                 self._abort_requested = True
                 self.engine.abort()
+
+        @self._kb.add("s-tab")
+        def _(event):
+            """Cycle permission mode: normal → auto-approve → plan → normal."""
+            MODES = ["normal", "auto-approve", "plan"]
+            self._perm_mode = (self._perm_mode + 1) % 3
+            mode = MODES[self._perm_mode]
+            if mode == "auto-approve" and self.permissions:
+                self.permissions._auto_approve = True
+            elif mode == "plan":
+                if self.permissions:
+                    self.permissions._auto_approve = False
+                if self.plan_manager and not self.plan_manager.is_active:
+                    self.plan_manager.enter()
+            else:
+                if self.permissions:
+                    self.permissions._auto_approve = False
+                if self.plan_manager and self.plan_manager.is_active:
+                    self.plan_manager.exit()
+            self.display.set_status(f"Mode: {mode}")
+            self._refresh()
 
         @self._kb.add("!")
         def _(event):
