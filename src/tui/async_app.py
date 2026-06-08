@@ -119,7 +119,6 @@ class AsyncApp:
         )
         self._following = True  # auto-scroll to bottom on new content
 
-        # Input area with history persistence and slash-command completion
         from pathlib import Path
         from prompt_toolkit.history import FileHistory
         from tui.prompt import slash_completer
@@ -158,6 +157,14 @@ class AsyncApp:
 
         # Model picker overlay (hidden by default)
         from prompt_toolkit.layout.containers import ConditionalContainer, FloatContainer, Float
+
+        # Pending stack: queued messages while processing
+        self._pending_control = FormattedTextControl(text=[], focusable=False)
+        self._pending_window = ConditionalContainer(
+            content=Window(content=self._pending_control, height=2, dont_extend_height=True),
+            filter=Condition(lambda: len(self._pending_stack) > 0),
+        )
+
         self._overlay_control = FormattedTextControl(
             text=self._render_overlay,
             focusable=True,
@@ -175,6 +182,7 @@ class AsyncApp:
         _body = HSplit([
             self._chat_window,
             Window(height=1, char="━", style="class:separator"),
+            self._pending_window,
             Window(content=self._header_control, height=1, dont_extend_height=True),
             self._input,
             self._status_window,
@@ -366,6 +374,9 @@ class AsyncApp:
             key_bindings=self._kb,
             full_screen=True,
             mouse_support=True,
+            style={
+                "pending": "bg:#333",
+            },
         )
 
     def _resolve_permission(self, response: str) -> None:
@@ -557,11 +568,12 @@ class AsyncApp:
         buffer.text = ""
 
         if self._is_processing:
-            # Stack: show immediately, process when current turn finishes
+            # Stack: queue message, show in pending area above input
             self._pending_stack.append(text)
-            self.display.add_user_message(text)
-            n = len(self._pending_stack)
-            self.display.set_status(f"Queued ({n})")
+            self._pending_control.text = [
+                ("class:pending", f" Queued ({len(self._pending_stack)}): "),
+                ("", text[:60] + ("…" if len(text) > 60 else "")),
+            ]
             self._refresh()
             return True
 
@@ -642,6 +654,13 @@ class AsyncApp:
             # Drain stacked messages — process next queued input if any
             if self._pending_stack:
                 next_msg = self._pending_stack.pop(0)
+                if self._pending_stack:
+                    self._pending_control.text = [
+                        ("class:pending", f" Queued ({len(self._pending_stack)}): "),
+                        ("", self._pending_stack[0][:60]),
+                    ]
+                else:
+                    self._pending_control.text = []
                 loop = asyncio.get_running_loop()
                 self._current_task = loop.create_task(self._process_input(next_msg))
 
