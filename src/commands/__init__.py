@@ -572,7 +572,6 @@ _COMMAND_TABLE: list[tuple[str, str, object]] = [
     ("help",     "Show available commands",                         _cmd_help),
     ("compact",  "Compress conversation context [instructions]",    _cmd_compact),
     ("resume",   "Resume a past session [number|session-id]",       _cmd_resume),
-    ("history",  "List saved sessions for this directory",          _cmd_history),
     ("clear",    "Clear conversation, start new session",           _cmd_clear),
     ("memory",   "Show current memory index",                       _cmd_memory),
     ("remember", "Save a note to the daily log [text]",             _cmd_remember),

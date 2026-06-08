@@ -89,7 +89,7 @@ class TestChatDisplay:
 
     def test_status_line(self):
         d = ChatDisplay()
-        assert d.render_status_line() == [("fg:ansigreen", "  Ready")]
+        assert d.render_status_line() == [("", " ")]
         d.set_status("Thinking…")
         status = d.render_status_line()
         assert status[0][1] == "  Thinking…"

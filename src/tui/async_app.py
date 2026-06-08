@@ -620,6 +620,32 @@ class AsyncApp:
             self._overlay_future = None
             self._app.invalidate()
 
+    async def _handle_resume_command(self) -> None:
+        """Show session list inline above input area."""
+        from core.session import SessionStore
+        cwd = __import__('os').getcwd()
+        sessions = SessionStore.list_sessions(cwd)
+        if not sessions:
+            self.display.add_system_message("No saved sessions.")
+            self._refresh()
+            return
+
+        options = [(s.session_id[:8], f"{s.title[:50]} ({s.message_count} msgs)", s.updated_at[:10]) for s in sessions]
+        result = await self._show_model_picker(options, "")
+        if result is None:
+            return
+
+        # Find and resume selected session
+        for s in sessions:
+            if s.session_id[:8] == result:
+                _, messages = SessionStore.load_session(s.session_id, cwd)
+                if messages:
+                    self.engine.set_messages(messages)
+                    self.display._messages.clear()
+                    self.display.add_system_message(f"Resumed: {s.title[:50]}")
+                    self._refresh()
+                return
+
     async def _handle_cost_command(self) -> None:
         """Show cost info above input area."""
         if self.cost_tracker is None:
@@ -1007,6 +1033,9 @@ class AsyncApp:
         # /model with overlay — handled inline, not via thread executor
         if cmd_name == "model":
             await self._handle_model_command(cmd_args)
+            return
+        if cmd_name == "resume":
+            await self._handle_resume_command()
             return
         if cmd_name == "cost":
             await self._handle_cost_command()
