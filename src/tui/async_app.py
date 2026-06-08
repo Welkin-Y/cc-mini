@@ -369,14 +369,13 @@ class AsyncApp:
                         )
 
         # Application
+        from prompt_toolkit.styles import Style
         self._app = Application(
             layout=self._layout,
             key_bindings=self._kb,
             full_screen=True,
             mouse_support=True,
-            style={
-                "pending": "bg:#333",
-            },
+            style=Style.from_dict({"pending": "bg:#333"}),
         )
 
     def _resolve_permission(self, response: str) -> None:
