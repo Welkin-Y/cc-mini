@@ -158,13 +158,6 @@ class AsyncApp:
         # Model picker overlay (hidden by default)
         from prompt_toolkit.layout.containers import ConditionalContainer, FloatContainer, Float
 
-        # Pending stack: queued messages while processing
-        self._pending_control = FormattedTextControl(text=[], focusable=False)
-        self._pending_window = ConditionalContainer(
-            content=Window(content=self._pending_control, height=2, dont_extend_height=True),
-            filter=Condition(lambda: len(self._pending_stack) > 0),
-        )
-
         self._overlay_control = FormattedTextControl(
             text=self._render_overlay,
             focusable=True,
@@ -182,7 +175,6 @@ class AsyncApp:
         _body = HSplit([
             self._chat_window,
             Window(height=1, char="━", style="class:separator"),
-            self._pending_window,
             Window(content=self._header_control, height=1, dont_extend_height=True),
             self._input,
             self._status_window,
@@ -369,13 +361,11 @@ class AsyncApp:
                         )
 
         # Application
-        from prompt_toolkit.styles import Style
         self._app = Application(
             layout=self._layout,
             key_bindings=self._kb,
             full_screen=True,
             mouse_support=True,
-            style=Style.from_dict({"pending": "bg:#333"}),
         )
 
     def _resolve_permission(self, response: str) -> None:
@@ -567,12 +557,11 @@ class AsyncApp:
         buffer.text = ""
 
         if self._is_processing:
-            # Stack: queue message, show in pending area above input
+            # Claude-style: queued messages appear in chat immediately
             self._pending_stack.append(text)
-            self._pending_control.text = [
-                ("class:pending", f" Queued ({len(self._pending_stack)}): "),
-                ("", text[:60] + ("…" if len(text) > 60 else "")),
-            ]
+            self.display.add_user_message(text)
+            n = len(self._pending_stack)
+            self.display.set_status(f"Queued ({n})")
             self._refresh()
             return True
 
@@ -654,12 +643,7 @@ class AsyncApp:
             if self._pending_stack:
                 next_msg = self._pending_stack.pop(0)
                 if self._pending_stack:
-                    self._pending_control.text = [
-                        ("class:pending", f" Queued ({len(self._pending_stack)}): "),
-                        ("", self._pending_stack[0][:60]),
-                    ]
-                else:
-                    self._pending_control.text = []
+                    self.display.set_status(f"Queued ({len(self._pending_stack)})")
                 loop = asyncio.get_running_loop()
                 self._current_task = loop.create_task(self._process_input(next_msg))
 

@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 from core.engine import Engine, AbortedError
 from core.tool import Tool, ToolResult
@@ -117,3 +118,47 @@ def test_run_query_handles_keyboard_interrupt():
     with patch.object(engine._client, "stream_messages", side_effect=raise_interrupt):
         run_query(engine, "hi", print_mode=True)
     # Should not propagate the exception
+
+
+# ---------------------------------------------------------------------------
+# Smoke tests — verify the actual CLI binary works
+# ---------------------------------------------------------------------------
+
+@pytest.mark.smoke
+def test_cc_mini_help():
+    """cc-mini --help works and mentions cc-mini."""
+    import subprocess, sys
+    r = subprocess.run(
+        [sys.executable, "-m", "tui.app", "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert r.returncode == 0
+    assert "cc-mini" in r.stdout
+
+
+@pytest.mark.smoke
+def test_cc_mini_module_imports():
+    """All new async TUI modules import cleanly."""
+    from tui.async_app import AsyncApp
+    from tui.display import ChatDisplay
+    from tui.engine_bridge import submit_async
+    from tui.formatted_buffer import FormattedBuffer
+    assert AsyncApp is not None
+    assert ChatDisplay is not None
+    assert submit_async is not None
+    assert FormattedBuffer is not None
+
+
+@pytest.mark.smoke
+def test_async_app_constructs():
+    """AsyncApp can be constructed without a terminal."""
+    from tui.async_app import AsyncApp
+    from core.engine import Engine
+    from core.permissions import PermissionChecker
+    engine = Engine(tools=[], system_prompt="test",
+                    permission_checker=PermissionChecker(auto_approve=True))
+    app = AsyncApp(engine=engine)
+    assert hasattr(app, '_chat_control')
+    assert hasattr(app, '_input')
+    assert hasattr(app, '_header_control')
+    assert hasattr(app, '_input')
