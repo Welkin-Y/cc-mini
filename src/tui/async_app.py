@@ -258,7 +258,7 @@ class AsyncApp:
                     except Exception:
                         pass
                     buf.selection_state = None
-                    self.display.set_status("Copied!")
+                    self.display.set_status(f"Copied! ({len(text)} chars)")
                     self._refresh()
                 except Exception:
                     pass
@@ -937,7 +937,7 @@ class AsyncApp:
         # Background spinner ticker — updates spinner even when no events arrive
         async def _tick_spinner():
             while self._thinking_start is not None:
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(0.25)
                 if self._thinking_start is not None:
                     self._refresh()
         spinner_task = asyncio.create_task(_tick_spinner())
