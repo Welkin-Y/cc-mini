@@ -92,6 +92,13 @@ class AsyncApp:
         self._permission_future: Optional[asyncio.Future] = None
         self._permission_tool_name: str = ""
 
+        # -- Question panel state (inline above input) --
+        self._question_active = False
+        self._question_cursor = 0
+        self._question_labels: list[str] = []
+        self._question_text = ""
+        self._question_future: Optional[asyncio.Future] = None
+
         # -- Model picker overlay state --
         self._overlay_active = False
         self._overlay_cursor = 0
@@ -133,6 +140,13 @@ class AsyncApp:
             completer=slash_completer,
             complete_while_typing=True,
             style="class:input-field",
+        )
+
+        # Question/ask panel between pending and header
+        self._panel_control = FormattedTextControl(text=[], focusable=False)
+        self._panel_window = ConditionalContainer(
+            content=Window(content=self._panel_control, dont_extend_height=True),
+            filter=Condition(lambda: self._question_active),
         )
 
         # Header line between separator and input: "cc-mini provider:model"
@@ -184,6 +198,7 @@ class AsyncApp:
             self._chat_window,
             Window(height=1, char="━", style="class:separator"),
             self._pending_window,
+            self._panel_window,
             Window(content=self._header_control, height=1, dont_extend_height=True),
             self._input,
             self._status_window,
@@ -246,7 +261,12 @@ class AsyncApp:
 
         @self._kb.add("escape")
         def _(event):
-            """Esc: dismiss command output > deny permission > abort turn."""
+            """Esc: dismiss command output > cancel question > deny permission > abort turn."""
+            # 0. Cancel question panel
+            if self._question_active:
+                if self._question_future and not self._question_future.done():
+                    self._question_future.set_result(None)
+                return
             # 1. Dismiss command output if present
             if self._dismissable_count > 0 and not self._is_processing:
                 self._dismiss_command_output()
@@ -353,6 +373,41 @@ class AsyncApp:
         def _(event):
             if self._overlay_future and not self._overlay_future.done():
                 self._overlay_future.set_result(None)
+
+        # Question panel keys
+        _question_active_filter = Condition(lambda: self._question_active)
+
+        @self._kb.add("up", filter=_question_active_filter)
+        def _(event):
+            self._question_cursor = (self._question_cursor - 1) % len(self._question_labels)
+            self._render_question_panel()
+            self._app.invalidate()
+
+        @self._kb.add("down", filter=_question_active_filter)
+        def _(event):
+            self._question_cursor = (self._question_cursor + 1) % len(self._question_labels)
+            self._render_question_panel()
+            self._app.invalidate()
+
+        @self._kb.add("enter", filter=_question_active_filter)
+        def _(event):
+            if self._question_future and not self._question_future.done():
+                self._question_future.set_result(
+                    self._question_labels[self._question_cursor])
+
+        @self._kb.add("escape", filter=_question_active_filter)
+        def _(event):
+            if self._question_future and not self._question_future.done():
+                self._question_future.set_result(None)
+
+        for _n in range(1, 10):
+            @self._kb.add(str(_n), filter=_question_active_filter)
+            def _(event, n=_n):
+                idx = n - 1
+                if idx < len(self._question_labels):
+                    if self._question_future and not self._question_future.done():
+                        self._question_future.set_result(
+                            self._question_labels[idx])
 
         # Number shortcuts 1-9 for quick model selection
         for _n in range(1, 10):
@@ -551,8 +606,8 @@ class AsyncApp:
         new messages are queued and displayed immediately, then processed
         in order when the current turn finishes.
         """
-        if self._overlay_active:
-            return True  # ignore during overlay
+        if self._overlay_active or self._question_active:
+            return True  # ignore during overlay/question
         if self._permission_future is not None:
             return True  # ignore during permission prompt
 
@@ -692,61 +747,45 @@ class AsyncApp:
     # ---- permission prompt handler ------------------------------------------
 
     async def _question_handler(self, questions: list) -> list:
-        """Handle AskUserQuestion via overlay (like model picker)."""
+        """Handle AskUserQuestion inline — renders above input area."""
         results = []
         for q in questions:
             question_text = q.get("question", "")
             options = q.get("options", [])
             labels = [o["label"] for o in options] + ["Other"]
-            descs = [o.get("description", "") for o in options] + [""]
-            multi = q.get("multiSelect", False)
-
-            # Build overlay options: (label, display, description)
-            overlay_opts = [(l, l, d) for l, d in zip(labels, descs)]
-
-            result = await self._show_question_overlay(
-                question_text, overlay_opts)
-            if result is None:
-                return []  # cancelled
-            results.append(result)
+            answer = await self._show_question_panel(question_text, labels)
+            if answer is None:
+                return []
+            results.append(answer)
         return results
 
-    async def _show_question_overlay(self, question: str,
-                                      options: list) -> Optional[str]:
-        """Show question overlay, return selected label or None."""
-        self._overlay_options = options
-        self._overlay_cursor = 0
-        self._overlay_effort_idx = 0  # reused as text_buf_idx
-        self._overlay_current_alias = ""  # reused for other text
-        self._overlay_future = asyncio.get_running_loop().create_future()
-        self._overlay_active = True
-        self._overlay_control.text = self._render_question_overlay(question)
+    async def _show_question_panel(self, question: str,
+                                    labels: list) -> Optional[str]:
+        """Show question inline above input, return selected label or None."""
+        self._question_active = True
+        self._question_cursor = 0
+        self._question_labels = labels
+        self._question_text = question
+        self._question_future = asyncio.get_running_loop().create_future()
+        self._render_question_panel()
         self._app.invalidate()
         try:
-            return await self._overlay_future
+            return await self._question_future
         finally:
-            self._overlay_active = False
-            self._overlay_future = None
+            self._question_active = False
+            self._question_future = None
             self._app.invalidate()
 
-    def _render_question_overlay(self, question: str) -> list:
-        """Render question overlay like model picker but with question text."""
-        labels = [o[0] for o in self._overlay_options]
-        descs = [o[2] for o in self._overlay_options]
+    def _render_question_panel(self):
         lines: list[tuple[str, str]] = []
-        lines.append(("bold", f"? {question}\n"))
-        lines.append(("ansigray", "  " + "-" * 40 + "\n"))
-        for i, (label, desc) in enumerate(zip(labels, descs)):
-            is_cur = i == self._overlay_cursor
+        lines.append(("bold", f"? {self._question_text}\n"))
+        for i, label in enumerate(self._question_labels):
+            is_cur = i == self._question_cursor
             ptr = "❯" if is_cur else " "
             sty = "bold ansibrightcyan" if is_cur else ""
-            lines.append((sty, f"  {ptr} {i+1}) {label}"))
-            if desc:
-                lines.append(("ansigray", f" - {desc}"))
-            lines.append(("", "\n"))
-        lines.append(("", "\n"))
+            lines.append((sty, f"  {ptr} {i+1}) {label}\n"))
         lines.append(("ansigray", "  ↑↓ select · 1-9 shortcut · ↵ confirm · esc cancel"))
-        return lines
+        self._panel_control.text = lines
 
     async def _permission_handler(self, tool_name: str, tool_input: dict) -> str:
         """Show an inline permission prompt and wait for y/n/a key press.
