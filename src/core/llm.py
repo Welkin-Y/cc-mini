@@ -6,7 +6,6 @@ from typing import Any, Iterator, Optional
 
 import anthropic
 import httpx
-from features.langchain_fallback import should_fallback_from_error_message
 
 
 _OPENAI_IMPORT_ERROR: Optional[Exception] = None
@@ -231,11 +230,6 @@ class LLMClient:
         if self.provider in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
             return openai is not None and isinstance(exc, openai.APIError)
         return isinstance(exc, anthropic.APIError)
-
-    def should_use_langchain_tool_fallback(self, exc: Exception) -> bool:
-        if self.provider not in (_OPENAI_PROVIDER, _LMSTUDIO_PROVIDER):
-            return False
-        return should_fallback_from_error_message(self.error_message(exc))
 
     @staticmethod
     def error_message(exc: Exception) -> str:

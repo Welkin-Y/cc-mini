@@ -18,12 +18,11 @@ class EchoTool(Tool):
         return ToolResult(content=f"Echo: {message}")
 
 
-def _make_engine(auto_approve=True, allow_langchain_fallback=False):
+def _make_engine(auto_approve=True):
     return Engine(
         tools=[EchoTool()],
         system_prompt="You are a test assistant.",
         permission_checker=PermissionChecker(auto_approve=auto_approve),
-        allow_langchain_fallback=allow_langchain_fallback,
     )
 
 
@@ -84,7 +83,7 @@ def test_engine_executes_tool_and_loops():
 
     tool_result_events = [e for e in events if e[0] == "tool_result"]
     assert len(tool_result_events) == 1
-    _, tool_name, _, result = tool_result_events[0]
+    _, tool_name, _, result = tool_result_events[0][:4]
     assert tool_name == "Echo"
     assert "Echo: world" in result.content
 
@@ -164,65 +163,3 @@ def test_engine_normalizes_tool_result_blocks_before_follow_up_request():
         "content": "Echo: world",
         "is_error": False,
     }]
-
-
-def test_engine_does_not_fall_back_to_langchain_when_disabled():
-    engine = _make_engine(allow_langchain_fallback=False)
-
-    with patch.object(engine._client, "stream_messages", side_effect=RuntimeError("tool_calls not supported")):
-        with patch.object(engine._client, "should_use_langchain_tool_fallback", return_value=True):
-            with patch("core.engine.run_langchain_agent") as fallback:
-                try:
-                    list(engine.submit("use fallback"))
-                except RuntimeError as exc:
-                    assert str(exc) == "tool_calls not supported"
-                else:
-                    raise AssertionError("Expected native tool-call error to propagate")
-
-    fallback.assert_not_called()
-
-
-def test_engine_falls_back_to_langchain_when_enabled():
-    engine = _make_engine(allow_langchain_fallback=True)
-
-    def _fake_run_langchain_agent(**kwargs):
-        kwargs["tool_specs"][0].invoke({"message": "fallback"})
-        return "fallback done"
-
-    with patch.object(engine._client, "stream_messages") as stream_messages:
-        with patch("core.engine.run_langchain_agent", side_effect=_fake_run_langchain_agent):
-            events = list(engine.submit("use fallback"))
-
-    tool_results = [event for event in events if event[0] == "tool_result"]
-    text_events = [event for event in events if event[0] == "text"]
-
-    stream_messages.assert_not_called()
-    assert tool_results[0][3].content == "Echo: fallback"
-    assert any(event[1] == "fallback done" for event in text_events)
-
-
-def test_engine_fallback_emits_tool_call_before_permission_check():
-    engine = _make_engine(auto_approve=False, allow_langchain_fallback=True)
-    seen = []
-
-    def _fake_prompt_user(tool, inputs):
-        seen.append(("prompt", tool.name, inputs))
-        return "deny"
-
-    def _fake_run_langchain_agent(**kwargs):
-        seen.append(("invoke_start",))
-        result = kwargs["tool_specs"][0].invoke({"message": "fallback"})
-        seen.append(("invoke_result", result))
-        return "fallback done"
-
-    with patch.object(engine._permissions, "_prompt_user", side_effect=_fake_prompt_user):
-        with patch("core.engine.run_langchain_agent", side_effect=_fake_run_langchain_agent):
-            events = list(engine.submit("use fallback"))
-
-    event_kinds = [event[0] for event in events]
-    assert event_kinds[:2] == ["tool_call", "tool_result"]
-    assert events[0][1] == "Echo"
-    assert events[1][3].is_error is True
-    assert seen[0] == ("invoke_start",)
-    assert seen[1] == ("prompt", "Echo", {"message": "fallback"})
-    assert seen[2] == ("invoke_result", "Permission denied.")

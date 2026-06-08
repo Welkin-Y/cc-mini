@@ -129,6 +129,56 @@ def _resolve_initial_model(app_config) -> str:
     return model
 
 
+def _run_async_repl(
+    *,
+    engine,
+    permissions,
+    app_config,
+    memory_dir,
+    session_store,
+    compact_service,
+    cost_tracker,
+    sandbox_mgr,
+    worker_manager,
+    plan_manager,
+    cwd: str,
+    current_model: list,
+    coordinator_enabled: bool,
+    session_id: str,
+    _apply_session_mode,
+    _build_tools_for_mode,
+    _build_system_prompt_for_mode,
+    _run_dream_fn,
+) -> None:
+    """Run the async TUI REPL (replaces the legacy sync REPL loop)."""
+    import asyncio
+    from tui.async_app import AsyncApp
+
+    app = AsyncApp(
+        engine=engine,
+        permissions=permissions,
+        cost_tracker=cost_tracker,
+        memory_dir=memory_dir,
+        session_store=session_store,
+        compact_service=compact_service,
+        app_config=app_config,
+        plan_manager=plan_manager,
+        worker_manager=worker_manager,
+        run_dream_fn=_run_dream_fn,
+        sandbox_mgr=sandbox_mgr,
+    )
+
+    # Run the async TUI
+    try:
+        asyncio.run(app.run())
+    except (KeyboardInterrupt, EOFError):
+        pass
+
+    # Print cost summary on exit
+    if cost_tracker.total_cost_usd > 0:
+        console.print(f"\n[dim]{cost_tracker.format_cost()}[/dim]")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="cc-mini",
                                      description="Minimal AI coding assistant")
@@ -158,10 +208,6 @@ def main() -> None:
                         help="Minimum new sessions before auto-dream triggers (default: 5)")
     parser.add_argument("--coordinator", action="store_true",
                         help="Enable coordinator mode with background workers")
-    parser.add_argument("--langchain-fallback", action="store_true",
-                        help="Use LangChain tools for providers that do not support native tool calls")
-    parser.add_argument("--langchain-debug", action="store_true",
-                        help="Print per-step LangChain fallback debug logs to stderr")
     args = parser.parse_args()
 
     try:
@@ -237,7 +283,6 @@ def main() -> None:
             model=_current_model(),
             max_tokens=app_config.max_tokens,
             effort=app_config.effort,
-            debug_langchain_fallback=args.langchain_debug,
         )
 
     def _build_plan_worker_engine() -> Engine:
@@ -262,8 +307,6 @@ def main() -> None:
             model=_current_model(),
             max_tokens=app_config.max_tokens,
             effort=app_config.effort,
-            allow_langchain_fallback=args.langchain_fallback,
-            debug_langchain_fallback=args.langchain_debug,
         )
 
     worker_manager = WorkerManager(build_worker_engine=_build_worker_engine)
@@ -312,8 +355,6 @@ def main() -> None:
         effort=app_config.effort,
         session_store=session_store,
         cost_tracker=cost_tracker,
-        allow_langchain_fallback=args.langchain_fallback,
-        debug_langchain_fallback=args.langchain_debug,
     )
     current_model[0] = engine.get_model()
     plan_manager.bind_engine(engine, build_plan_worker_engine=_build_plan_worker_engine)
@@ -380,230 +421,30 @@ def main() -> None:
             console.print(f"\n[dim]{cost_tracker.format_cost()}[/dim]")
         return
 
-    # Interactive REPL
-    config_note = (
-        f"[dim]{app_config.provider}:{_current_model()} · "
-        f"max_tokens={app_config.max_tokens}[/dim]"
+    # Interactive REPL — async TUI
+    _run_async_repl(
+        engine=engine,
+        permissions=permissions,
+        app_config=app_config,
+        memory_dir=memory_dir,
+        session_store=session_store,
+        compact_service=compact_service,
+        cost_tracker=cost_tracker,
+        sandbox_mgr=sandbox_mgr,
+        worker_manager=worker_manager,
+        plan_manager=plan_manager,
+        cwd=cwd,
+        current_model=current_model,
+        coordinator_enabled=coordinator_enabled,
+        session_id=session_id,
+        _apply_session_mode=_apply_session_mode,
+        _build_tools_for_mode=_build_tools_for_mode,
+        _build_system_prompt_for_mode=_build_system_prompt_for_mode,
+        _run_dream_fn=lambda quiet=True, transcript_dir="", session_ids=None: _run_dream(
+            engine, memory_dir, permissions,
+            quiet=quiet, transcript_dir=transcript_dir, session_ids=session_ids,
+        ),
     )
-    if is_coordinator_mode():
-        config_note += " [dim yellow]· coordinator[/dim yellow]"
-    session_note = f"[dim]session {session_store.session_id[:8]}[/dim]" if session_store else ""
-    console.print("[bold cyan]cc-mini[/bold cyan]  "
-                  f"{config_note}  {session_note}")
-
-
-    _file_history = FileHistory(str(_HISTORY_FILE))
-
-    # Track last Ctrl+C time for double-press exit (matches useDoublePress)
-    last_ctrlc_time = 0.0
-
-    # Terminal mode state — shared mutable ref toggled by "!" key binding
-    _terminal_mode_ref = [False]
-
-    animator = None
-
-    _exiting = False
-
-    def _drain_worker_notifications() -> None:
-        if _exiting:
-            return
-        # Collect managers to drain: coordinator + plan-mode workers
-        managers_to_drain = []
-        if is_coordinator_mode():
-            managers_to_drain.append(worker_manager)
-        plan_wm = plan_manager.worker_manager
-        if plan_wm is not None:
-            managers_to_drain.append(plan_wm)
-        if not managers_to_drain:
-            return
-        for mgr in managers_to_drain:
-            while True:
-                notifications = mgr.drain_notifications()
-                if not notifications:
-                    break
-                for notification in notifications:
-                    # Extract summary info from XML notification
-                    import re as _re
-                    _desc = _re.search(r"<summary>(.*?)</summary>", notification)
-                    _uses = _re.search(r"<tool_uses>(\d+)</tool_uses>", notification)
-                    _dur = _re.search(r"<duration_ms>(\d+)</duration_ms>", notification)
-                    _status = _re.search(r"<status>(.*?)</status>", notification)
-                    desc = _desc.group(1) if _desc else "Worker update"
-                    uses = _uses.group(1) if _uses else "?"
-                    dur_s = f"{int(_dur.group(1)) / 1000:.1f}" if _dur else "?"
-                    status = _status.group(1) if _status else "completed"
-                    icon = "[green]●[/green]" if status == "completed" else "[red]●[/red]"
-                    console.print(f"\n{icon} [dim]{desc} ({uses} tool uses, {dur_s}s)[/dim]")
-                    try:
-                        run_query(engine, notification, print_mode=False, permissions=permissions)
-                    except (KeyboardInterrupt, Exception):
-                        return
-
-    def _show_worker_status() -> None:
-        """Show running worker status before prompt."""
-        # Collect statuses from coordinator + plan-mode workers
-        all_statuses = []
-        if is_coordinator_mode():
-            all_statuses.extend(worker_manager.get_running_status())
-        plan_wm = plan_manager.worker_manager
-        if plan_wm is not None:
-            all_statuses.extend(plan_wm.get_running_status())
-        for s in all_statuses:
-            uses = s["tool_uses"]
-            activity = s["activity"] or "working"
-            console.print(
-                f"[dim]  ● {s['description']} — "
-                f"{uses} tool use{'s' if uses != 1 else ''} · {activity}[/dim]"
-            )
-
-    while True:
-        _drain_worker_notifications()
-        _show_worker_status()
-
-        try:
-            console.print()
-            _terminal_mode_ref[0] = False  # always start in chat mode
-            user_input = bordered_prompt(
-                console,
-                history=_file_history,
-                completer=slash_completer,
-                terminal_mode_ref=_terminal_mode_ref,
-            ).strip()
-        except KeyboardInterrupt:
-            now = time.monotonic()
-            if now - last_ctrlc_time <= _DOUBLE_PRESS_TIMEOUT_MS:
-                _exiting = True
-                console.print("\n[dim]Goodbye.[/dim]")
-                break
-            last_ctrlc_time = now
-            console.print("\n[dim yellow]Press Ctrl+C again to exit[/dim yellow]")
-            continue
-        except EOFError:
-            console.print("\n[dim]Goodbye.[/dim]")
-            break
-
-        # Reset double-press timer on any normal input
-        last_ctrlc_time = 0.0
-
-        if not user_input:
-            continue
-
-        # ---------------------------------------------------------------------------
-        # Terminal mode — "!" key toggles mode in-place (no submit needed).
-        # In terminal mode every submitted input is a shell command.
-        # Outside terminal mode "!cmd" runs a one-off shell command.
-        # ---------------------------------------------------------------------------
-        if _terminal_mode_ref[0]:
-            run_shell(user_input, console)
-            continue
-
-        if user_input.startswith("!") and len(user_input) > 1:
-            run_shell(user_input[1:].lstrip(), console)
-            continue
-        if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
-            console.print("[dim]Goodbye.[/dim]")
-            break
-        if user_input.startswith("/sandbox"):
-            handle_sandbox_command(user_input, sandbox_mgr, console)
-            continue
-
-        # Slash commands (session, compact, help, etc.)
-        cmd = parse_command(user_input)
-        if cmd is not None:
-            cmd_name, cmd_args = cmd
-            if cmd_name in ("exit", "quit"):
-                console.print("[dim]Goodbye.[/dim]")
-                break
-            cmd_ctx = CommandContext(
-                engine=engine,
-                session_store=session_store,
-                compact_service=compact_service,
-                console=console,
-                app_config=app_config,
-                memory_dir=memory_dir,
-                permissions=permissions,
-                run_dream=lambda: _run_dream(engine, memory_dir, permissions),
-                cost_tracker=cost_tracker,
-                new_session_store=lambda: SessionStore(
-                    cwd=cwd,
-                    model=_current_model(),
-                    mode=current_session_mode(),
-                ),
-                reconfigure_mode=_apply_session_mode,
-                plan_manager=plan_manager,
-                on_model_change=lambda model: current_model.__setitem__(0, model),
-            )
-            handle_command(cmd_name, cmd_args, cmd_ctx)
-            session_store = cmd_ctx.session_store
-            # If the command set a pending query (e.g. /plan <description>),
-            # submit it to the model instead of continuing to the next prompt.
-            if cmd_ctx.pending_query:
-                user_input = cmd_ctx.pending_query
-                cmd_ctx.pending_query = None
-                # Fall through to normal query processing below
-            else:
-                continue
-
-        # Auto-compact when approaching token limits
-        if should_compact(engine.get_messages(), model=_current_model(),
-                          last_input_tokens=cost_tracker.last_input_tokens):
-            console.print("[dim]Auto-compacting conversation…[/dim]")
-            try:
-                new_msgs, _ = compact_service.compact(
-                    engine.get_messages(), engine.system_prompt)
-                engine.set_messages(new_msgs)
-                console.print(f"[dim]Context compressed to {estimate_tokens(new_msgs):,} tokens.[/dim]")
-            except Exception as e:
-                console.print(f"[dim red]Auto-compact failed: {e}[/dim red]")
-
-        run_query(engine, parse_input(user_input), print_mode=False, permissions=permissions)
-        _drain_worker_notifications()
-
-        # Post-turn: extract <memory> tags
-        text = engine.last_assistant_text()
-        for mem in extract_memory_tags(text):
-            append_to_daily_log(memory_dir, mem)
-
-        # Auto-dream gate check
-        current_sid = session_store.session_id if session_store else session_id
-        sessions_path = session_store._dir if session_store else None
-        if app_config.auto_dream and should_auto_dream(
-            memory_dir,
-            min_hours=app_config.dream_interval_hours,
-            min_sessions=app_config.dream_min_sessions,
-            current_session_id=current_sid,
-            sessions_dir=sessions_path,
-        ):
-            prior_mtime = read_last_consolidated_at(memory_dir)
-            if try_acquire_lock(memory_dir):
-                # Gather session IDs for the dream prompt
-                from features.memory import list_sessions_since
-                sids = list_sessions_since(
-                    prior_mtime,
-                    sessions_dir=sessions_path,
-                    current_session_id=current_sid,
-                )
-                transcript_dir = str(sessions_path) if sessions_path else ""
-                try:
-                    _run_dream(
-                        engine, memory_dir, permissions, quiet=True,
-                        transcript_dir=transcript_dir,
-                        session_ids=sids,
-                    )
-                    release_lock(memory_dir)
-                except Exception:
-                    # Rollback: rewind lock mtime so dream retries next time
-                    from features.memory import _lock_path
-                    try:
-                        lp = _lock_path(memory_dir)
-                        if lp.exists():
-                            os.utime(lp, (prior_mtime, prior_mtime))
-                    except OSError:
-                        pass
-
-    # Print cost summary on exit
-    if cost_tracker.total_cost_usd > 0:
-        console.print(f"\n[dim]{cost_tracker.format_cost()}[/dim]")
 
 
 if __name__ == "__main__":

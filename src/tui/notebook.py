@@ -219,7 +219,7 @@ class NotebookApp:
             self._set_status("<em>Error</em>")
             return
         if kind == "tool_call":
-            _, tool_name, tool_input, _activity = event
+            _, tool_name, tool_input, _activity = event[:4]
             self._append_output(f"\n↳ {tool_name}({tool_input})\n")
             self._set_status(f"<em>Permission required: {tool_name}</em>")
             return

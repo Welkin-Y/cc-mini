@@ -132,7 +132,3 @@ def test_lmstudio_defaults():
     assert default_max_tokens_for_provider("lmstudio") == 8192
 
 
-def test_openai_client_detects_langchain_fallback_error():
-    with patch("core.llm.OpenAI"):
-        client = LLMClient(provider="openai", api_key="test-key")
-    assert client.should_use_langchain_tool_fallback(RuntimeError("tool_calls are not supported")) is True

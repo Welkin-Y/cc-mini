@@ -77,14 +77,14 @@ def run_query(engine: Engine, user_input: Union[str, list], print_mode: bool,
                         spinner.stop()
                         streaming = False
                         listener.pause()
-                        _, tool_name, tool_input, activity = event
+                        _, tool_name, tool_input, activity = event[:4]
                         preview = tool_preview(tool_name, tool_input)
                         key = f"{tool_name}({preview})"
                         pending_tools[key] = (tool_name, f"↳ {key}")
 
                 elif event[0] == "tool_executing":
                     if not quiet:
-                        _, tool_name, tool_input, activity = event
+                        _, tool_name, tool_input, activity = event[:4]
                         n = len(pending_tools)
                         if tool_name == "AskUserQuestion":
                             # Interactive prompt — stop spinner so it renders on a clean line
@@ -102,7 +102,7 @@ def run_query(engine: Engine, user_input: Union[str, list], print_mode: bool,
                 elif event[0] == "tool_result":
                     if not quiet:
                         spinner.stop()
-                        _, tool_name, tool_input, result = event
+                        _, tool_name, tool_input, result = event[:4]
                         preview = tool_preview(tool_name, tool_input)
                         key = f"{tool_name}({preview})"
                         tname, line = pending_tools.pop(key, (tool_name, f"↳ {key}"))
