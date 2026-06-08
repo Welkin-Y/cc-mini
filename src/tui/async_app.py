@@ -943,6 +943,12 @@ class AsyncApp:
                     self._refresh()
         spinner_task = asyncio.create_task(_tick_spinner())
 
+        def _on_first_token():
+            if self._thinking_start is not None:
+                self._thinking_start = None
+                spinner_task.cancel()
+                self.display.hide_thinking()
+
         try:
             await submit_async(
                 engine=self.engine,
@@ -952,6 +958,7 @@ class AsyncApp:
                 permission_handler=self._permission_handler,
                 refresh_callback=self._refresh,
                 question_handler=self._question_handler,
+                on_first_token=_on_first_token,
             )
         except Exception as exc:
             self.display.add_system_message(f"[red]{exc}[/red]")

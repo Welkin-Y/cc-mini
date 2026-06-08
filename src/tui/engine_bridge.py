@@ -50,6 +50,7 @@ async def submit_async(
     permission_handler: Optional[PermissionHandler] = None,
     refresh_callback=None,
     question_handler=None,
+    on_first_token=None,
 ) -> None:
     """Run engine.submit() in a thread, streaming events to the display.
 
@@ -165,6 +166,8 @@ async def submit_async(
                         if not streaming:
                             current_asst_id = display.start_assistant_stream()
                             streaming = True
+                            if on_first_token:
+                                on_first_token()
                         display.append_token(current_asst_id, event[1])
 
                     elif kind == "waiting":
