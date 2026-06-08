@@ -49,6 +49,7 @@ async def submit_async(
     permissions: Optional[PermissionChecker] = None,
     permission_handler: Optional[PermissionHandler] = None,
     refresh_callback=None,
+    full_redraw_fn=None,
 ) -> None:
     """Run engine.submit() in a thread, streaming events to the display.
 
@@ -58,9 +59,13 @@ async def submit_async(
 
     If *refresh_callback* is provided, it is called (synchronously) after
     every event that changes the display, so the TUI can repaint immediately.
+
+    If *full_redraw_fn* is provided, it is called after AskUserQuestion
+    completes (its mini PT app corrupts the terminal; a full redraw repairs it).
     """
     loop = asyncio.get_running_loop()
     _refresh = refresh_callback or (lambda: None)
+    _full_redraw = full_redraw_fn or _refresh
     event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
     # -- Setup bridged permission prompts --
@@ -174,11 +179,11 @@ async def submit_async(
                                 content=result.content if hasattr(result, 'content') else str(result),
                                 is_error=result.is_error if hasattr(result, 'is_error') else False,
                             )
-                        # AskUserQuestion spawns its own PT app which takes
-                        # over the terminal. Force immediate refresh to
-                        # reclaim the screen after it exits.
+                        # AskUserQuestion spawns a mini PT app that corrupts
+                        # the terminal. Show compact result + force full redraw.
                         if tool_name == "AskUserQuestion":
-                            _refresh()
+                            display.add_system_message(" Answered")
+                            _full_redraw()
 
                     elif kind == "error":
                         display.add_system_message(f"[red]{event[1]}[/red]")

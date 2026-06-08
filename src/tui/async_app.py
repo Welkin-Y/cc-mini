@@ -383,6 +383,14 @@ class AsyncApp:
 
     # ---- refresh ------------------------------------------------------------
 
+    def _full_redraw(self) -> None:
+        """Force complete terminal redraw (for recovery after mini PT apps)."""
+        try:
+            self._app.renderer.clear()
+        except Exception:
+            pass
+        self._refresh()
+
     def _refresh(self) -> None:
         """Push latest display state into the UI controls and invalidate."""
         ft = self.display.render()
@@ -680,6 +688,7 @@ class AsyncApp:
                 permissions=self.permissions,
                 permission_handler=self._permission_handler,
                 refresh_callback=self._refresh,
+                full_redraw_fn=self._full_redraw,
             )
         except Exception as exc:
             self.display.add_system_message(f"[red]{exc}[/red]")
