@@ -929,6 +929,14 @@ class AsyncApp:
         self.display.show_thinking(0.0)
         self._refresh()
 
+        # Background spinner ticker — updates spinner even when no events arrive
+        async def _tick_spinner():
+            while self._thinking_start is not None:
+                await asyncio.sleep(0.1)
+                if self._thinking_start is not None:
+                    self._refresh()
+        spinner_task = asyncio.create_task(_tick_spinner())
+
         try:
             await submit_async(
                 engine=self.engine,
@@ -944,6 +952,7 @@ class AsyncApp:
 
         elapsed = _time.monotonic() - t0
         self._thinking_start = None
+        spinner_task.cancel()
         self.display.hide_thinking()
         self.display.mark_done_timing(elapsed)
         self._post_turn_hooks()
