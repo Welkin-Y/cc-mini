@@ -174,6 +174,11 @@ async def submit_async(
                                 content=result.content if hasattr(result, 'content') else str(result),
                                 is_error=result.is_error if hasattr(result, 'is_error') else False,
                             )
+                        # AskUserQuestion spawns its own PT app which takes
+                        # over the terminal. Force immediate refresh to
+                        # reclaim the screen after it exits.
+                        if tool_name == "AskUserQuestion":
+                            _refresh()
 
                     elif kind == "error":
                         display.add_system_message(f"[red]{event[1]}[/red]")

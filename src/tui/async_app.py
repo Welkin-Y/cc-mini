@@ -199,7 +199,6 @@ class AsyncApp:
                     ),
                     Float(
                         content=self._overlay_window,
-                        # Center overlay in the top portion of screen
                     ),
                 ],
             )
