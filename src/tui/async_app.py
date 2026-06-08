@@ -355,6 +355,26 @@ class AsyncApp:
 
         # Keyboard scrolling for chat area
         # PageUp/PageDown work in plain terminal; Ctrl+Up/Ctrl+Down work in tmux
+        @self._kb.add("up")
+        def _(event):
+            # If pending messages exist and no processing, pop last for editing
+            if self._pending_stack and not self._is_processing and not self._input.buffer.text:
+                msg = self._pending_stack.pop()
+                if self._pending_stack:
+                    lines = []
+                    for m in self._pending_stack:
+                        lines.append(("class:pending", f" {m[:60]}\n"))
+                    self._pending_control.text = lines
+                else:
+                    self._pending_control.text = []
+                self._input.buffer.text = msg
+                self._refresh()
+                return
+            # Normal: scroll output up
+            self._following = False
+            cur = self._chat_window.vertical_scroll or 0
+            self._chat_window.vertical_scroll = max(0, cur - 5)
+
         @self._kb.add("pageup")
         @self._kb.add("c-up")
         def _(event):
