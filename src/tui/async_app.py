@@ -97,6 +97,7 @@ class AsyncApp:
         self._question_cursor = 0
         self._question_labels: list[str] = []
         self._question_text = ""
+        self._question_other_text = ""
         self._question_future: Optional[asyncio.Future] = None
 
         # -- Model picker overlay state --
@@ -421,13 +422,61 @@ class AsyncApp:
         @self._kb.add("enter", filter=_question_active_filter)
         def _(event):
             if self._question_future and not self._question_future.done():
-                self._question_future.set_result(
-                    self._question_labels[self._question_cursor])
+                other_idx = len(self._question_labels) - 1
+                if self._question_cursor == other_idx and self._question_other_text:
+                    self._question_future.set_result(self._question_other_text)
+                elif self._question_cursor == other_idx:
+                    self._question_future.set_result(None)  # empty Other = cancel
+                else:
+                    self._question_future.set_result(
+                        self._question_labels[self._question_cursor])
 
         @self._kb.add("escape", filter=_question_active_filter)
         def _(event):
+            other_idx = len(self._question_labels) - 1
+            if self._question_cursor == other_idx and self._question_other_text:
+                self._question_other_text = ""
+                self._render_question_panel()
+                self._app.invalidate()
+                return
             if self._question_future and not self._question_future.done():
                 self._question_future.set_result(None)
+
+        @self._kb.add("backspace", filter=_question_active_filter)
+        def _(event):
+            other_idx = len(self._question_labels) - 1
+            if self._question_cursor == other_idx and self._question_other_text:
+                self._question_other_text = self._question_other_text[:-1]
+                self._render_question_panel()
+                self._app.invalidate()
+
+        @self._kb.add("<any>", filter=_question_active_filter)
+        def _(event):
+            ch = event.data
+            if not ch or not ch.isprintable():
+                return
+            other_idx = len(self._question_labels) - 1
+            if self._question_cursor == other_idx:
+                # Type into Other text buffer
+                self._question_other_text += ch
+                self._render_question_panel()
+                self._app.invalidate()
+                return
+            # Number quick-select on regular options
+            if ch.isdigit():
+                idx = int(ch) - 1
+                if 0 <= idx < len(self._question_labels):
+                    if idx == other_idx:
+                        self._question_cursor = other_idx
+                    elif self._question_future and not self._question_future.done():
+                        self._question_future.set_result(
+                            self._question_labels[idx])
+                    return
+            # Any other char: jump to Other and start typing
+            self._question_cursor = other_idx
+            self._question_other_text += ch
+            self._render_question_panel()
+            self._app.invalidate()
 
         for _n in range(1, 10):
             @self._kb.add(str(_n), filter=_question_active_filter)
@@ -795,6 +844,7 @@ class AsyncApp:
         self._question_cursor = 0
         self._question_labels = labels
         self._question_text = question
+        self._question_other_text = ""
         self._question_future = asyncio.get_running_loop().create_future()
         self._render_question_panel()
         self._app.invalidate()
@@ -806,14 +856,23 @@ class AsyncApp:
             self._app.invalidate()
 
     def _render_question_panel(self):
+        other_idx = len(self._question_labels) - 1  # last option = Other
         lines: list[tuple[str, str]] = []
         lines.append(("bold", f"? {self._question_text}\n"))
         for i, label in enumerate(self._question_labels):
             is_cur = i == self._question_cursor
             ptr = "❯" if is_cur else " "
             sty = "bold ansibrightcyan" if is_cur else ""
-            lines.append((sty, f"  {ptr} {i+1}) {label}\n"))
-        lines.append(("ansigray", "  ↑↓ select · 1-9 shortcut · ↵ confirm · esc cancel"))
+            if i == other_idx and is_cur and self._question_other_text:
+                lines.append((sty, f"  {ptr} {i+1}) "))
+                lines.append(("ansibrightgreen bold", self._question_other_text))
+                lines.append(("ansigray", "█\n"))
+            elif i == other_idx and is_cur:
+                lines.append((sty, f"  {ptr} {i+1}) {label}\n"))
+                lines.append(("ansigray", "     Type something.\n"))
+            else:
+                lines.append((sty, f"  {ptr} {i+1}) {label}\n"))
+        lines.append(("ansigray", "  ↑↓ select · type for Other · ↵ confirm · esc cancel"))
         self._panel_control.text = lines
 
     async def _permission_handler(self, tool_name: str, tool_input: dict) -> str:
