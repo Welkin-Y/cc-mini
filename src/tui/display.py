@@ -142,20 +142,18 @@ class ChatDisplay:
 
     _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-    def show_thinking(self, elapsed: float = 0.0) -> None:
-        """Show spinner + elapsed time in the output area."""
-        frame = self._SPINNER[int(elapsed * 10) % len(self._SPINNER)]
-        text = f"  {frame} Thinking… {elapsed:.1f}s"
-        self._thinking = True
-        self._thinking_elapsed = elapsed
-        # Remove previous thinking message, add fresh one
-        self._messages = [m for m in self._messages if m.role != "_thinking"]
-        self._messages.append(_Msg(role="_thinking", content=text))
+    _spin_idx = 0
 
-    def hide_thinking(self, total: float = 0.0) -> None:
-        """Remove thinking indicator. Optionally show total time."""
+    def show_thinking(self, _elapsed: float = 0.0) -> None:
+        """Show spinner animation in the output area."""
+        self._spin_idx = (self._spin_idx + 1) % len(self._SPINNER)
+        frame = self._SPINNER[self._spin_idx]
         self._messages = [m for m in self._messages if m.role != "_thinking"]
-        self._thinking = False
+        self._messages.append(_Msg(role="_thinking", content=f"  {frame} Thinking…"))
+
+    def hide_thinking(self) -> None:
+        """Remove thinking indicator."""
+        self._messages = [m for m in self._messages if m.role != "_thinking"]
 
     def mark_done_timing(self, elapsed: float) -> None:
         """Show completion timing in the output area."""

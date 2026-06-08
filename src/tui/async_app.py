@@ -587,8 +587,7 @@ class AsyncApp:
         import time as _time
         # Update spinner animation if thinking
         if self._thinking_start and self._is_processing:
-            elapsed = _time.monotonic() - self._thinking_start
-            self.display.show_thinking(elapsed)
+            self.display.show_thinking()
         ft = self.display.render()
         plain = _fmt_to_plain(ft)
         self._chat_buffer.text = plain
@@ -932,13 +931,13 @@ class AsyncApp:
 
         t0 = _time.monotonic()
         self._thinking_start = t0
-        self.display.show_thinking(0.0)
+        self.display.show_thinking()
         self._refresh()
 
         # Background spinner ticker — updates spinner even when no events arrive
         async def _tick_spinner():
             while self._thinking_start is not None:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.15)
                 if self._thinking_start is not None:
                     self._refresh()
         spinner_task = asyncio.create_task(_tick_spinner())
