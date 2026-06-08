@@ -334,9 +334,15 @@ def _tool_preview(tool_name: str, tool_input: dict) -> str:
     if tool_name == "Bash":
         cmd = tool_input.get("command", "")
         return cmd[:80] + ("…" if len(cmd) > 80 else "")
-    if tool_name in ("Read", "Edit", "Write"):
+    if tool_name == "Read":
         fp = tool_input.get("file_path", "")
-        return fp[-60:] if len(fp) > 60 else fp
+        offset = tool_input.get("offset")
+        limit = tool_input.get("limit")
+        if offset is not None and limit is not None:
+            return f"{fp} (L{int(offset)}-{int(offset)+int(limit)})"
+        return fp
+    if tool_name in ("Edit", "Write"):
+        return tool_input.get("file_path", "")
     if tool_name == "Glob":
         pat = tool_input.get("pattern", "")
         p = tool_input.get("path", "")
