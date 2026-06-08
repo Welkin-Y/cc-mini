@@ -215,7 +215,9 @@ class ChatDisplay:
         return FormattedText(result)
 
     def render_status_line(self) -> list[tuple[str, str]]:
-        """Render the status line (shown in the bottom bar)."""
+        """Render the status line. Accepts plain string or FormattedText list."""
+        if isinstance(self._status, list):
+            return self._status
         if self._status:
             return [("fg:ansiyellow bold", f"  {self._status}")]
         return [("fg:ansigreen", "  Ready")]
