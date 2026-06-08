@@ -230,38 +230,28 @@ class AsyncApp:
 
         @self._kb.add("c-c")
         def _(event):
-            # If output area has selection, copy to clipboard via OSC 52
-            sel = getattr(self._chat_buffer, 'selection_state', None)
+            # Output or input area has selection → copy to system clipboard
+            out_sel = getattr(self._chat_buffer, 'selection_state', None)
+            in_sel = getattr(self._input.buffer, 'selection_state', None)
+            sel = out_sel or in_sel
+            buf = self._chat_buffer if out_sel else self._input.buffer
             if sel and isinstance(sel, tuple) and len(sel) == 2:
                 try:
-                    import base64
                     s, e = min(sel), max(sel)
-                    text = self._chat_buffer.text[s:e]
+                    text = buf.text[s:e]
+                    # PT clipboard (works if xclip/xsel/pyperclip available)
+                    from prompt_toolkit.clipboard import ClipboardData
+                    event.app.clipboard.set_data(ClipboardData(text))
+                    # OSC 52 via /dev/tty (bypasses PT output layer entirely)
+                    import base64, os as _os
                     b64 = base64.b64encode(text.encode()).decode()
-                    # OSC 52 escape sequence — works in most terminals
-                    # Write directly to terminal (bypass PT output layer)
-                    import sys as _sys
-                    _sys.__stdout__.write(f"\x1b]52;c;{b64}\x07")
-                    _sys.__stdout__.flush()
-                    self._chat_buffer.selection_state = None
-                    self.display.set_status("Copied!")
-                    self._refresh()
-                except Exception:
-                    pass
-                return
-            # Input area selection → copy
-            in_sel = getattr(self._input.buffer, 'selection_state', None)
-            if in_sel and isinstance(in_sel, tuple) and len(in_sel) == 2:
-                try:
-                    import base64
-                    s, e = min(in_sel), max(in_sel)
-                    text = self._input.buffer.text[s:e]
-                    b64 = base64.b64encode(text.encode()).decode()
-                    # Write directly to terminal (bypass PT output layer)
-                    import sys as _sys
-                    _sys.__stdout__.write(f"\x1b]52;c;{b64}\x07")
-                    _sys.__stdout__.flush()
-                    self._input.buffer.selection_state = None
+                    try:
+                        with open("/dev/tty", "w") as _tty:
+                            _tty.write(f"\x1b]52;c;{b64}\x07")
+                            _tty.flush()
+                    except Exception:
+                        pass
+                    buf.selection_state = None
                     self.display.set_status("Copied!")
                     self._refresh()
                 except Exception:
