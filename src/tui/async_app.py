@@ -162,7 +162,7 @@ class AsyncApp:
         self._pending_control = FormattedTextControl(text=[], focusable=False)
         self._pending_window = ConditionalContainer(
             content=Window(content=self._pending_control,
-                           height=2, dont_extend_height=True),
+                           dont_extend_height=True),
             filter=Condition(lambda: len(self._pending_stack) > 0),
         )
 
