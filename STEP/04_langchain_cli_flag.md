@@ -1,0 +1,7 @@
+- [x] Commit the current notebook, audit, and fallback scaffolding work
+- [x] Gate LangChain tool fallback behind an explicit engine flag
+- [x] Add `--langchain-fallback` to the `cc-mini` CLI and pass it into main and worker engines
+- [x] Make the flag proactive so tool-using turns go directly through LangChain when native tool calls are unavailable by design
+- [x] Update engine tests for disabled-by-default and enabled fallback behavior
+- [x] Document the new CLI flag in the README
+- [x] Run focused verification for engine and LLM behavior

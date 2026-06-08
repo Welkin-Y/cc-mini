@@ -165,6 +165,8 @@ async def submit_async(
 
                     elif kind == "tool_executing":
                         _, tool_name, tool_input, activity = event[:4]
+                        if tool_name == "AskUserQuestion":
+                            continue
                         tool_use_id = event[4] if len(event) > 4 else _make_fallback_id(tool_name, tool_input)
                         if tool_use_id in pending_tools:
                             display.update_tool_running(pending_tools[tool_use_id])
@@ -172,6 +174,15 @@ async def submit_async(
                     elif kind == "tool_result":
                         _, tool_name, tool_input, result = event[:4]
                         tool_use_id = event[4] if len(event) > 4 else _make_fallback_id(tool_name, tool_input)
+
+                        # AskUserQuestion already rendered via its own PT app —
+                        # don't echo verbose result in output area.
+                        if tool_name == "AskUserQuestion":
+                            pending_tools.pop(tool_use_id, None)
+                            display.add_system_message(" Answered")
+                            _full_redraw()
+                            continue
+
                         if tool_use_id in pending_tools:
                             key = pending_tools.pop(tool_use_id)
                             display.update_tool_done(
@@ -179,11 +190,6 @@ async def submit_async(
                                 content=result.content if hasattr(result, 'content') else str(result),
                                 is_error=result.is_error if hasattr(result, 'is_error') else False,
                             )
-                        # AskUserQuestion spawns a mini PT app that corrupts
-                        # the terminal. Show compact result + force full redraw.
-                        if tool_name == "AskUserQuestion":
-                            display.add_system_message(" Answered")
-                            _full_redraw()
 
                     elif kind == "error":
                         display.add_system_message(f"[red]{event[1]}[/red]")
