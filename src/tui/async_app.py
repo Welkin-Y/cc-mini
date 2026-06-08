@@ -569,10 +569,10 @@ class AsyncApp:
             # Show stacked messages above header, not in chat yet
             self._pending_stack.append(text)
             n = len(self._pending_stack)
-            lines = [("class:pending", f" Queued ({n}): ")]
-            for i, msg in enumerate(self._pending_stack):
+            lines = []
+            for msg in self._pending_stack:
                 preview = msg[:60] + ("…" if len(msg) > 60 else "")
-                lines.append(("", f"\n     {preview}"))
+                lines.append(("class:pending", f" {preview}\n"))
             self._pending_control.text = lines
             self._refresh()
             return True
