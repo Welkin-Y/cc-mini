@@ -278,8 +278,12 @@ def _render_assistant(msg: _Msg, result: list[tuple[str, str]]) -> None:
 
 
 def _render_tool(msg: _Msg, result: list[tuple[str, str]]) -> None:
-    """Tool call/result: single line with icon, dim result content."""
-    label = f"↳ {msg.tool_name}({msg.tool_preview})" if msg.tool_preview else f"↳ {msg.tool_name}"
+    """Tool call/result: icon + label + dim content. Edit: diff colors."""
+    is_edit = msg.tool_name == "Edit"
+    preview = msg.tool_preview or ""
+    # Split preview: first line is file path, rest is diff/extra
+    preview_lines = preview.split("\n")
+    label = f"↳ {msg.tool_name}({preview_lines[0]})" if preview_lines[0] else f"↳ {msg.tool_name}"
 
     if msg.tool_status == "pending":
         result.append(("fg:ansigray", f"  {label}\n"))
@@ -290,8 +294,21 @@ def _render_tool(msg: _Msg, result: list[tuple[str, str]]) -> None:
         color = "fg:ansired" if msg.tool_result_is_error else "fg:ansigreen"
         result.append((color, f"  {icon} "))
         result.append(("fg:ansigray", f"{label}\n"))
-        if msg.content:
-            # Show result content dimmed and truncated
+        # Diff lines for Edit tool
+        if is_edit:
+            import re as _re
+            for line in preview_lines[1:]:
+                if not line.strip():
+                    continue
+                # Strip ANSI codes, detect +/- markers, apply PT styles
+                clean = _re.sub(r'\x1b\[[0-9;]*m', '', line).lstrip()
+                if clean.startswith('-'):
+                    result.append(("fg:ansired", f"  {clean}\n"))
+                elif clean.startswith('+'):
+                    result.append(("fg:ansigreen", f"  {clean}\n"))
+                else:
+                    result.append(("fg:ansigray dim", f"  {clean}\n"))
+        elif msg.content:
             content = msg.content.replace("\t", "    ")[:500]
             for line in content.split("\n")[:5]:
                 result.append(("fg:ansigray dim italic", f"     {line}\n"))
@@ -334,6 +351,30 @@ def _render_system(msg: _Msg, result: list[tuple[str, str]]) -> None:
 
 # -- tool preview helpers (from rendering.py) --------------------------------
 
+def _format_diff(old: str, new: str) -> str:
+    """Format a diff between old and new strings."""
+    import difflib
+    old_lines = old.splitlines()
+    new_lines = new.splitlines()
+    result = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old_lines, new_lines).get_opcodes():
+        if tag == "equal":
+            for l in old_lines[i1:i2]:
+                result.append(f"    {l}")
+        elif tag == "delete":
+            for l in old_lines[i1:i2]:
+                result.append(f"  \x1b[31m-{l}\x1b[0m")
+        elif tag == "insert":
+            for l in new_lines[j1:j2]:
+                result.append(f"  \x1b[32m+{l}\x1b[0m")
+        elif tag == "replace":
+            for l in old_lines[i1:i2]:
+                result.append(f"  \x1b[31m-{l}\x1b[0m")
+            for l in new_lines[j1:j2]:
+                result.append(f"  \x1b[32m+{l}\x1b[0m")
+    return "\n".join(result)
+
+
 def _tool_preview(tool_name: str, tool_input: dict) -> str:
     """Generate a short preview string for a tool invocation."""
     if tool_name == "Bash":
@@ -346,7 +387,13 @@ def _tool_preview(tool_name: str, tool_input: dict) -> str:
         if offset is not None and limit is not None:
             return f"{fp} (L{int(offset)}-{int(offset)+int(limit)})"
         return fp
-    if tool_name in ("Edit", "Write"):
+    if tool_name == "Edit":
+        fp = tool_input.get("file_path", "")
+        old = tool_input.get("old_string", "")
+        new = tool_input.get("new_string", "")
+        diff = _format_diff(old, new)
+        return f"{fp}\n{diff}"
+    if tool_name == "Write":
         return tool_input.get("file_path", "")
     if tool_name == "Glob":
         pat = tool_input.get("pattern", "")
