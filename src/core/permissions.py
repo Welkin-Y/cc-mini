@@ -135,12 +135,14 @@ class PermissionChecker:
             return "allow"
         if tool.name in ("Edit", "Write"):
             file_path = inputs.get("file_path", "")
-            if (
-                self._dream_memory_dir
-                and isinstance(file_path, str)
-                and os.path.realpath(file_path).startswith(self._dream_memory_dir)
-            ):
-                return "allow"
+            if self._dream_memory_dir and isinstance(file_path, str):
+                try:
+                    target = os.path.realpath(file_path)
+                    common = os.path.commonpath([self._dream_memory_dir, target])
+                    if common == self._dream_memory_dir:
+                        return "allow"
+                except ValueError:
+                    pass
             return "deny"
         # Bash and everything else: denied during dream
         return "deny"

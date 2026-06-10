@@ -3,9 +3,10 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 from core.tool import Tool, ToolResult
-from .file_edit import FileEditTool
+from .file_edit import FileEditTool, _absolute_path_or_error
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico"}
+_MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MiB
 _MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1 GiB
 
 
@@ -55,18 +56,35 @@ class FileReadTool(Tool):
         return f"Reading {file_path}" if file_path else None
 
     def execute(self, file_path: str, offset: int = 0, limit: int = 2000) -> ToolResult:
-        path = Path(file_path)
+        path, error = _absolute_path_or_error(file_path)
+        if error is not None:
+            return error
+        assert path is not None
         if not path.exists():
             return ToolResult(content=f"Error: File not found: {file_path}", is_error=True)
         if not path.is_file():
             return ToolResult(content=f"Error: Not a file: {file_path}", is_error=True)
+
+        try:
+            size = path.stat().st_size
+        except OSError as e:
+            return ToolResult(content=f"Error reading file metadata: {e}", is_error=True)
+
+        is_image = path.suffix.lower() in _IMAGE_EXTENSIONS
+        if is_image and size > _MAX_IMAGE_SIZE:
+            return ToolResult(
+                content=f"Error: Image too large ({size} bytes)",
+                is_error=True,
+            )
+        if size > _MAX_FILE_SIZE:
+            return ToolResult(content=f"Error: File too large ({size} bytes)", is_error=True)
 
         # Mark file as read for edit/write enforcement
         FileEditTool.mark_file_read(file_path)
         FileEditTool.mark_file_read(str(path.resolve()))
 
         # Image files — return base64 encoded content
-        if path.suffix.lower() in _IMAGE_EXTENSIONS:
+        if is_image:
             try:
                 data = path.read_bytes()
                 b64 = base64.b64encode(data).decode("ascii")
@@ -79,14 +97,6 @@ class FileReadTool(Tool):
         # Binary file detection
         if _is_binary(path):
             return ToolResult(content=f"Error: {file_path} appears to be a binary file", is_error=True)
-
-        # File size check
-        try:
-            size = path.stat().st_size
-            if size > _MAX_FILE_SIZE:
-                return ToolResult(content=f"Error: File too large ({size} bytes)", is_error=True)
-        except OSError:
-            pass
 
         try:
             content = path.read_text(encoding="utf-8", errors="replace")

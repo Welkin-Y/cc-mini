@@ -30,6 +30,23 @@ def test_file_read_missing_file():
     assert "not found" in result.content.lower() or "no such" in result.content.lower()
 
 
+def test_file_read_rejects_relative_path():
+    result = FileReadTool().execute(file_path="relative.txt")
+    assert result.is_error
+    assert "absolute" in result.content.lower()
+
+
+def test_file_read_rejects_large_image(tmp_path):
+    image = tmp_path / "large.png"
+    with image.open("wb") as fh:
+        fh.truncate(10 * 1024 * 1024 + 1)
+
+    result = FileReadTool().execute(file_path=str(image))
+
+    assert result.is_error
+    assert "image too large" in result.content.lower()
+
+
 def test_file_read_is_read_only():
     assert FileReadTool().is_read_only() is True
 
@@ -93,6 +110,7 @@ def test_grep_is_read_only():
 
 
 from tools.file_edit import FileEditTool
+from tools.file_write import FileWriteTool
 
 
 def test_file_edit_replaces_unique_string(tmp_path):
@@ -137,6 +155,14 @@ def test_file_edit_missing_file():
     assert result.is_error
 
 
+def test_file_edit_rejects_relative_path():
+    result = FileEditTool().execute(
+        file_path="code.py", old_string="x", new_string="y"
+    )
+    assert result.is_error
+    assert "absolute" in result.content.lower()
+
+
 def test_file_edit_string_not_found(tmp_path):
     f = tmp_path / "code.py"
     f.write_text("hello\n")
@@ -144,6 +170,12 @@ def test_file_edit_string_not_found(tmp_path):
     result = FileEditTool().execute(file_path=str(f), old_string="xyz", new_string="abc")
     assert result.is_error
     assert "not found" in result.content.lower()
+
+
+def test_file_write_rejects_relative_path():
+    result = FileWriteTool().execute(file_path="new.txt", content="hello\n")
+    assert result.is_error
+    assert "absolute" in result.content.lower()
 
 
 from tools.bash import BashTool

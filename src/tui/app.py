@@ -69,7 +69,8 @@ _DOUBLE_PRESS_TIMEOUT_MS = 0.8
 
 
 def _run_dream(engine: Engine, memory_dir: Path,
-               permissions: PermissionChecker, quiet: bool = False,
+               permissions: PermissionChecker, model: str,
+               quiet: bool = False,
                transcript_dir: str = "",
                session_ids: list[str] | None = None) -> None:
     """Run dream consolidation: snapshot messages, submit dream prompt, restore.
@@ -100,7 +101,7 @@ def _run_dream(engine: Engine, memory_dir: Path,
             permissions.exit_dream_mode()
 
     # Rebuild system prompt to pick up updated MEMORY.md
-    engine.system_prompt = build_system_prompt(model=app_config.model, memory_dir=memory_dir)
+    engine.system_prompt = build_system_prompt(model=model, memory_dir=memory_dir)
     record_consolidation(memory_dir)
     if not quiet:
         console.print("[dim]Dream consolidation complete. Memory index updated.[/dim]")
@@ -575,7 +576,9 @@ def main() -> None:
                 app_config=app_config,
                 memory_dir=memory_dir,
                 permissions=permissions,
-                run_dream=lambda: _run_dream(engine, memory_dir, permissions),
+                run_dream=lambda: _run_dream(
+                    engine, memory_dir, permissions, app_config.model
+                ),
                 cost_tracker=cost_tracker,
                 new_session_store=lambda: SessionStore(
                     cwd=cwd,
@@ -722,7 +725,7 @@ def main() -> None:
                 ):
                     try:
                         _run_dream(
-                            engine, memory_dir, permissions, quiet=True,
+                            engine, memory_dir, permissions, app_config.model, quiet=True,
                             transcript_dir=_transcript_dir,
                             session_ids=_sids,
                         )

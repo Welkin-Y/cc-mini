@@ -1,5 +1,4 @@
 from unittest.mock import patch
-import os
 from core.permissions import PermissionChecker
 from tools.file_read import FileReadTool
 from tools.bash import BashTool
@@ -49,3 +48,30 @@ def test_always_caches_approval():
     # Second call should NOT prompt — already cached via _always_allow
     result = checker.check(BashTool(), {"command": "echo second"})
     assert result == "allow"
+
+
+def test_dream_mode_denies_sibling_directory_with_same_prefix(tmp_path):
+    memory_dir = tmp_path / "memory"
+    sibling_dir = tmp_path / "memory2"
+    memory_dir.mkdir()
+    sibling_dir.mkdir()
+
+    checker = PermissionChecker()
+    checker.enter_dream_mode(str(memory_dir))
+
+    assert checker.check(
+        FileEditTool(),
+        {
+            "file_path": str(memory_dir / "MEMORY.md"),
+            "old_string": "x",
+            "new_string": "y",
+        },
+    ) == "allow"
+    assert checker.check(
+        FileEditTool(),
+        {
+            "file_path": str(sibling_dir / "MEMORY.md"),
+            "old_string": "x",
+            "new_string": "y",
+        },
+    ) == "deny"

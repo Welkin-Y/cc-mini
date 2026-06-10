@@ -4,6 +4,16 @@ from pathlib import Path
 from core.tool import Tool, ToolResult
 
 
+def _absolute_path_or_error(file_path: str) -> tuple[Path | None, ToolResult | None]:
+    path = Path(file_path)
+    if not path.is_absolute():
+        return None, ToolResult(
+            content=f"Error: file_path must be absolute: {file_path}",
+            is_error=True,
+        )
+    return path, None
+
+
 class FileEditTool(Tool):
     name = "Edit"
     description = (
@@ -48,7 +58,10 @@ class FileEditTool(Tool):
 
     def execute(self, file_path: str, old_string: str, new_string: str,
                 replace_all: bool = False) -> ToolResult:
-        path = Path(file_path)
+        path, error = _absolute_path_or_error(file_path)
+        if error is not None:
+            return error
+        assert path is not None
         if not path.exists():
             return ToolResult(content=f"Error: File not found: {file_path}", is_error=True)
 

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 from core.tool import Tool, ToolResult
-from .file_edit import FileEditTool
+from .file_edit import FileEditTool, _absolute_path_or_error
 
 
 class FileWriteTool(Tool):
@@ -32,7 +31,10 @@ class FileWriteTool(Tool):
         return f"Writing {file_path}" if file_path else None
 
     def execute(self, file_path: str, content: str) -> ToolResult:
-        path = Path(file_path)
+        path, error = _absolute_path_or_error(file_path)
+        if error is not None:
+            return error
+        assert path is not None
 
         # Enforce read-before-write for existing files
         if path.exists():
