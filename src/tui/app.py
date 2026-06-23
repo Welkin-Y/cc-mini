@@ -141,6 +141,7 @@ def _run_async_repl(
     sandbox_mgr,
     worker_manager,
     plan_manager,
+    goal_manager,
     cwd: str,
     current_model: list,
     coordinator_enabled: bool,
@@ -163,6 +164,7 @@ def _run_async_repl(
         compact_service=compact_service,
         app_config=app_config,
         plan_manager=plan_manager,
+        goal_manager=goal_manager,
         worker_manager=worker_manager,
         run_dream_fn=_run_dream_fn,
         sandbox_mgr=sandbox_mgr,
@@ -249,6 +251,10 @@ def main() -> None:
 
     def _build_system_prompt_for_mode(coordinator_enabled: bool) -> str:
         prompt = build_system_prompt(cwd=cwd, model=_current_model(), memory_dir=memory_dir)
+        if goal_manager.is_active:
+            section = goal_manager.get_system_prompt_section()
+            if section:
+                prompt += "\n\n" + section
         if skills_section:
             prompt += "\n\n" + skills_section
         if coordinator_enabled:
@@ -316,6 +322,10 @@ def main() -> None:
     from tools.plan_tools import EnterPlanModeTool, ExitPlanModeTool
     plan_manager = PlanModeManager()
 
+    # Goal manager
+    from features.goal import GoalManager
+    goal_manager = GoalManager()
+
     def _build_tools_for_mode(coordinator_enabled: bool) -> list:
         tools = _build_base_tools()
         tools.append(AskUserQuestionTool())
@@ -360,6 +370,7 @@ def main() -> None:
     plan_manager.bind_engine(engine, build_plan_worker_engine=_build_plan_worker_engine)
     plan_manager.set_permissions(permissions)
     permissions.set_plan_manager(plan_manager)
+    goal_manager.bind_engine(engine)
     compact_service = CompactService(
         client=engine._client,
         model=engine.get_model(),
@@ -433,6 +444,7 @@ def main() -> None:
         sandbox_mgr=sandbox_mgr,
         worker_manager=worker_manager,
         plan_manager=plan_manager,
+        goal_manager=goal_manager,
         cwd=cwd,
         current_model=current_model,
         coordinator_enabled=coordinator_enabled,

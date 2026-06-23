@@ -55,6 +55,7 @@ class AsyncApp:
         compact_service=None,
         app_config=None,
         plan_manager=None,
+        goal_manager=None,
         worker_manager=None,
         run_dream_fn=None,
         sandbox_mgr=None,
@@ -67,6 +68,7 @@ class AsyncApp:
         self.compact_service = compact_service
         self.app_config = app_config
         self.plan_manager = plan_manager
+        self.goal_manager = goal_manager
         self.worker_manager = worker_manager
         self._run_dream_fn = run_dream_fn
         self._sandbox_mgr = sandbox_mgr
@@ -95,6 +97,10 @@ class AsyncApp:
         # Key bindings y/n/a resolve it, unblocking the engine thread.
         self._permission_future: Optional[asyncio.Future] = None
         self._permission_tool_name: str = ""
+
+        # -- Goal exit confirmation state --
+        self._goal_exit_pending: bool = False
+        self._goal_evaluator_reason: str = ""
 
         # -- Question panel state (inline above input) --
         self._question_active = False
@@ -273,7 +279,7 @@ class AsyncApp:
                 self._last_ctrlc_time = 0.0
                 if self._permission_future is not None and not self._permission_future.done():
                     self._permission_future.set_result("deny")
-                event.app.exit()
+                self._try_exit_sync()
             else:
                 self._last_ctrlc_time = now
                 self.display.set_status("Press Ctrl+C again to exit")
@@ -287,7 +293,7 @@ class AsyncApp:
                 self._last_ctrlc_time = 0.0
                 if self._permission_future is not None and not self._permission_future.done():
                     self._permission_future.set_result("deny")
-                event.app.exit()
+                self._try_exit_sync()
             else:
                 self._last_ctrlc_time = now
                 self.display.set_status("Press Ctrl+C/D again to exit")
@@ -296,21 +302,27 @@ class AsyncApp:
 
         @self._kb.add("escape")
         def _(event):
-            """Esc: dismiss command output > cancel question > deny permission > abort turn."""
-            # 0. Cancel question panel
+            """Esc: cancel goal-exit > dismiss cmd output > cancel question > deny permission > abort turn."""
+            # 0. Cancel goal-exit confirmation
+            if self._goal_exit_pending:
+                self._goal_exit_pending = False
+                self.display.set_status("")
+                self._refresh()
+                return
+            # 1. Cancel question panel
             if self._question_active:
                 if self._question_future and not self._question_future.done():
                     self._question_future.set_result(None)
                 return
-            # 1. Dismiss command output if present
+            # 2. Dismiss command output if present
             if self._dismissable_count > 0 and not self._is_processing:
                 self._dismiss_command_output()
                 return
-            # 2. Deny pending permission
+            # 3. Deny pending permission
             if self._permission_future is not None and not self._permission_future.done():
                 self._permission_future.set_result("deny")
                 return
-            # 3. Abort current turn
+            # 4. Abort current turn
             if self._is_processing:
                 self._abort_requested = True
                 self.engine.abort()
@@ -420,6 +432,24 @@ class AsyncApp:
         @self._kb.add("A", filter=_perm_active)
         def _(event):
             self._resolve_permission("always")
+
+        # Goal exit confirmation keys — only fire when exit warning is pending
+        _goal_exit_filter = Condition(lambda: self._goal_exit_pending)
+
+        @self._kb.add("y", filter=_goal_exit_filter)
+        @self._kb.add("Y", filter=_goal_exit_filter)
+        def _(event):
+            self._goal_exit_pending = False
+            self.display.add_system_message("Goodbye.")
+            self._refresh()
+            event.app.exit()
+
+        @self._kb.add("n", filter=_goal_exit_filter)
+        @self._kb.add("N", filter=_goal_exit_filter)
+        def _(event):
+            self._goal_exit_pending = False
+            self.display.set_status("")
+            self._refresh()
 
         # Model picker overlay keys — only fire when overlay is active
         _overlay_active = Condition(lambda: self._overlay_active)
@@ -838,6 +868,40 @@ class AsyncApp:
         self._current_task = loop.create_task(self._process_input(text))
         return True
 
+    def _try_exit_sync(self, goodbye: str = "Goodbye.") -> None:
+        """Exit the app, checking the goal stop-hook first.
+
+        Safe to call from any context (sync key-binding handlers, async
+        command dispatch, etc.).  When a goal is active the first call
+        displays a warning; a second call acts as an escape hatch.
+        """
+        if self.goal_manager is not None and self.goal_manager.is_active:
+            if not self._goal_exit_pending:
+                self._goal_exit_pending = True
+                goal = self.goal_manager.goal_text
+                self.display.add_system_message(
+                    f"[yellow]Goal not met:[/yellow] {goal}\n"
+                    "[dim]Press [bold]y[/bold] to confirm exit, "
+                    "[bold]n[/bold] or [bold]Esc[/bold] to cancel, "
+                    "or press exit again to override.[/dim]"
+                )
+                self.display.set_status("Goal not met — confirm exit?")
+                self._refresh()
+                return
+            # Second attempt — escape hatch
+            self._goal_exit_pending = False
+
+        self.display.add_system_message(goodbye)
+        self._refresh()
+        try:
+            self._app.exit()
+        except Exception:
+            pass
+
+    async def _try_exit(self, goodbye: str = "Goodbye.") -> None:
+        """Async wrapper for exit with goal stop-hook."""
+        self._try_exit_sync(goodbye)
+
     # ---- main processing loop -----------------------------------------------
 
     async def _process_input(self, text: str) -> None:
@@ -855,12 +919,7 @@ class AsyncApp:
                 return
 
             if text.lower() in ("exit", "quit", "/exit", "/quit"):
-                self.display.add_system_message("Goodbye.")
-                self._refresh()
-                try:
-                    self._app.exit()
-                except Exception:
-                    pass
+                self._try_exit_sync("Goodbye.")
                 return
 
             if text.startswith("/") and not text.startswith("/sandbox"):
@@ -923,51 +982,95 @@ class AsyncApp:
                 self._current_task = loop.create_task(self._process_input(next_msg))
 
     async def _run_engine(self, user_input) -> None:
-        """Submit user input to the engine and stream results to the display."""
+        """Submit user input to the engine and stream results to the display.
+
+        When a session goal is active, auto-continues after each turn until
+        the goal is completed, the user aborts, or a turn limit is reached.
+        """
         from tui.engine_bridge import submit_async
         import time as _time
 
         await self._auto_compact()
 
-        t0 = _time.monotonic()
-        self._thinking_start = t0
-        self.display.show_thinking()
-        self._refresh()
+        _first_turn = True
 
-        # Background spinner ticker — updates spinner even when no events arrive
-        async def _tick_spinner():
-            while self._thinking_start is not None:
-                await asyncio.sleep(0.25)
+        while True:
+            t0 = _time.monotonic()
+            self._thinking_start = t0
+            self.display.show_thinking()
+            self._refresh()
+
+            # Background spinner ticker
+            async def _tick_spinner():
+                while self._thinking_start is not None:
+                    await asyncio.sleep(0.25)
+                    if self._thinking_start is not None:
+                        self._refresh()
+            spinner_task = asyncio.create_task(_tick_spinner())
+
+            def _on_first_token():
                 if self._thinking_start is not None:
-                    self._refresh()
-        spinner_task = asyncio.create_task(_tick_spinner())
+                    self._thinking_start = None
+                    spinner_task.cancel()
+                    self.display.hide_thinking()
 
-        def _on_first_token():
-            if self._thinking_start is not None:
-                self._thinking_start = None
-                spinner_task.cancel()
-                self.display.hide_thinking()
+            try:
+                await submit_async(
+                    engine=self.engine,
+                    user_input=user_input,
+                    display=self.display,
+                    permissions=self.permissions,
+                    permission_handler=self._permission_handler,
+                    refresh_callback=self._refresh,
+                    question_handler=self._question_handler,
+                    on_first_token=_on_first_token,
+                )
+            except Exception as exc:
+                self.display.add_system_message(f"[red]{exc}[/red]")
 
-        try:
-            await submit_async(
-                engine=self.engine,
-                user_input=user_input,
-                display=self.display,
-                permissions=self.permissions,
-                permission_handler=self._permission_handler,
-                refresh_callback=self._refresh,
-                question_handler=self._question_handler,
-                on_first_token=_on_first_token,
+            elapsed = _time.monotonic() - t0
+            self._thinking_start = None
+            spinner_task.cancel()
+            self.display.hide_thinking()
+            self.display.mark_done_timing(elapsed)
+            self._post_turn_hooks()
+
+            # --- Goal-driven auto-continuation ---
+            if not self._should_auto_continue():
+                break
+            if self._abort_requested:
+                break
+
+            _first_turn = False
+            self.display.add_system_message("[dim]Continuing toward goal…[/dim]")
+            self._refresh()
+            await asyncio.sleep(0.3)
+            user_input = (
+                "Continue working toward the goal. "
+                "Review your checklist, mark completed items [x], "
+                "pick the next undone sub-step, and work on it."
             )
-        except Exception as exc:
-            self.display.add_system_message(f"[red]{exc}[/red]")
+            # Append evaluator model feedback if available
+            if self._goal_evaluator_reason:
+                user_input += f"\n\n[Evaluator feedback: {self._goal_evaluator_reason}]"
 
-        elapsed = _time.monotonic() - t0
-        self._thinking_start = None
-        spinner_task.cancel()
-        self.display.hide_thinking()
-        self.display.mark_done_timing(elapsed)
-        self._post_turn_hooks()
+    def _should_auto_continue(self) -> bool:
+        """Return True if the goal loop should keep running."""
+        if self.goal_manager is None:
+            return False
+        if not self.goal_manager.is_active:
+            return False
+        if self.goal_manager.completed:
+            return False
+        gs = self.goal_manager.goal_state
+        if gs is not None and gs.turn_limit is not None:
+            if gs.turns_elapsed >= gs.turn_limit:
+                self.display.add_system_message(
+                    f"[yellow]Goal turn limit reached "
+                    f"({gs.turns_elapsed}/{gs.turn_limit}).[/yellow]"
+                )
+                return False
+        return True
 
     # ---- permission prompt handler ------------------------------------------
 
@@ -1119,12 +1222,7 @@ class AsyncApp:
             self._refresh()
             return
         if cmd_name in ("exit", "quit"):
-            self.display.add_system_message("Goodbye.")
-            self._refresh()
-            try:
-                self._app.exit()
-            except Exception:
-                pass
+            self._try_exit_sync("Goodbye.")
             return
 
         ctx = CommandContext(
@@ -1143,6 +1241,7 @@ class AsyncApp:
             )) if self.session_store else None,
             reconfigure_mode=None,
             plan_manager=self.plan_manager,
+            goal_manager=self.goal_manager,
             on_model_change=lambda model: None,
             pending_query=None,
         )
@@ -1162,6 +1261,17 @@ class AsyncApp:
             None,
             lambda: handle_command(cmd_name, cmd_args, ctx),
         )
+
+        # Sync goal state to persistent status bar after any command
+        if self.goal_manager is not None:
+            if self.goal_manager.is_active and self.goal_manager.goal_state is not None:
+                gs = self.goal_manager.goal_state
+                parts = [gs.text]
+                if gs.turn_limit is not None:
+                    parts.append(f"({gs.turns_elapsed}/{gs.turn_limit})")
+                self.display.set_persistent_status(" ".join(parts))
+            else:
+                self.display.set_persistent_status("")
 
         # Remember how many messages command output added — Esc can dismiss them
         _added = len(self.display._messages) - _before_count
@@ -1210,6 +1320,25 @@ class AsyncApp:
 
     def _post_turn_hooks(self) -> None:
         """Extract memory tags and trigger auto-dream after each turn."""
+        # Tick goal turn counter + evaluator model
+        self._goal_evaluator_reason = ""
+        if self.goal_manager is not None:
+            try:
+                self._goal_evaluator_reason = self.goal_manager.on_post_turn()
+                # Sync goal state to persistent status bar
+                if self.goal_manager.is_active:
+                    gs = self.goal_manager.goal_state
+                    parts = [gs.text]
+                    if gs.completed:
+                        parts.append("[✓]")
+                    elif gs.turn_limit is not None:
+                        parts.append(f"({gs.turns_elapsed}/{gs.turn_limit})")
+                    self.display.set_persistent_status(" ".join(parts))
+                else:
+                    self.display.set_persistent_status("")
+            except Exception:
+                pass
+
         # Extract <memory> tags from assistant output
         if self.memory_dir is not None:
             try:

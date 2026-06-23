@@ -56,6 +56,7 @@ class ChatDisplay:
     def __init__(self) -> None:
         self._messages: list[_Msg] = []
         self._status: str = ""
+        self._persistent_status: str = ""
         self._counter = 0
 
     # -- mutation ------------------------------------------------------------
@@ -162,6 +163,14 @@ class ChatDisplay:
     def set_status(self, text: str) -> None:
         self._status = text
 
+    def set_persistent_status(self, text: str) -> None:
+        """Set a persistent prefix shown in the status bar at all times.
+
+        Unlike ``set_status``, this survives ``set_status("")`` clears and
+        is intended for long-lived indicators like an active /goal.
+        """
+        self._persistent_status = text
+
     def render_ansi(self) -> str:
         """Render all messages to an ANSI string for BufferControl.
 
@@ -235,10 +244,19 @@ class ChatDisplay:
 
     def render_status_line(self) -> list[tuple[str, str]]:
         """Render the status line."""
+        result: list[tuple[str, str]] = []
+        # Persistent prefix (e.g. active /goal) — always shown
+        if self._persistent_status:
+            result.append(("fg:ansimagenta bold", f"  \U0001f3af {self._persistent_status}"))
+            if self._status:
+                result.append(("fg:ansiyellow bold", "  |  "))
+        # Temporary status (e.g. "Running /command…", permission prompts)
         if isinstance(self._status, list):
-            return self._status
+            return result + self._status
         if self._status:
-            return [("fg:ansiyellow bold", f"  {self._status}")]
+            result.append(("fg:ansiyellow bold", f"  {self._status}"))
+        if result:
+            return result
         return [("", " ")]
 
 

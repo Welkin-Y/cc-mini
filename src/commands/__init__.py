@@ -42,6 +42,7 @@ class CommandContext:
     new_session_store: object = None
     reconfigure_mode: object = None
     plan_manager: object = None
+    goal_manager: object = None
     on_model_change: object = None
     pending_query: Optional[str] = None  # set by commands that want a follow-up model query
 
@@ -543,6 +544,28 @@ def _cmd_model(ctx: CommandContext, args: str) -> None:
 # Command registry
 # ---------------------------------------------------------------------------
 
+def _cmd_goal(ctx: CommandContext, args: str) -> None:
+    """Set, show, or clear the session goal."""
+    gm = ctx.goal_manager
+    if gm is None:
+        ctx.console.print("[red]Goal system not available.[/red]")
+        return
+
+    stripped = args.strip()
+    if not stripped:
+        ctx.console.print(gm.show_goal())
+    elif stripped.lower() == "clear":
+        ctx.console.print(gm.clear_goal())
+    else:
+        ctx.console.print(f"[green]{gm.set_goal(args)}[/green]")
+        # Kick off an automatic first turn so the model starts working
+        # immediately — same pattern as /plan <description>
+        ctx.pending_query = (
+            f"Work toward this goal: {gm.goal_text}\n\n"
+            "Break it into sub-steps, then start working through them."
+        )
+
+
 def _cmd_plan(ctx: CommandContext, args: str) -> None:
     """Enter plan mode or show current plan."""
     from features.plan import PlanModeManager
@@ -580,6 +603,7 @@ _COMMAND_TABLE: list[tuple[str, str, object]] = [
     ("cost",    "Show token usage and cost summary",               _cmd_cost),
     ("model",   "Show or switch model [model-name]",               _cmd_model),
     ("plan",    "Enter plan mode or show current plan",             _cmd_plan),
+    ("goal",    "Set, show, or clear session goal [description|clear]", _cmd_goal),
 ]
 
 _HANDLERS: dict[str, object] = {name: handler for name, _, handler in _COMMAND_TABLE}
